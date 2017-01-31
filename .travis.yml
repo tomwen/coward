@@ -1,0 +1,71 @@
+# Following ENV Variable must be defined:
+# COVERALLS_TOKEN, GITHUB_USER, GITHUB_TOKEN
+
+# Select Go language
+language: go
+
+# Disable sudo so we run in a container
+sudo: false
+
+# Env
+env:
+    global:
+        - BUILD_TARGETS="darwin/386 darwin/amd64 windows/386 windows/amd64 openbsd/386 openbsd/amd64 freebsd/386 freebsd/amd64 linux/386 linux/amd64 linux/arm linux/arm64"
+        - VERSION_VARIABLE=github.com/nickrio/coward/application.version
+        - PACKAGE=github.com/nickrio/coward
+
+# Don't build tags
+branches:
+        except:
+            - experimental
+            - gh-pages
+            - doc
+            - /^v[0-9]/
+
+# Use lastest Go version
+go:
+    - master
+
+# Build proccess mainly grabbed from @tcnksm's
+# project: github.com/tcnksm-sample/travis-golang
+# Thank you tcnksm!
+
+# Install following tools to get ready:
+# - goveralls: Upload coverage information
+# - ghr:       Upload compiled files to GitHub release
+# - gox:       For cross builds
+before_install:
+    - if [[ "$COVERALLS_TOKEN" == "" ]] || [[ "$GITHUB_TOKEN" == "" ]] || [[ "$GITHUB_USER" == "" ]]; then return 1; fi
+    - go get github.com/go-playground/overalls
+    - if [[ "$TRAVIS_BRANCH" == "master" ]] && [[ "$TRAVIS_TAG" == "" ]]; then go get github.com/mattn/goveralls; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then go get github.com/tcnksm/ghr; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then go get github.com/mitchellh/gox; fi
+
+# Run the deploy:
+# - Check code style
+# - Test it with go test and generate 'coverage.out' file
+script:
+    - go vet ./...
+    - if [[ "$TRAVIS_BRANCH" == "master" ]] || [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then overalls -project="$PACKAGE" -covermode=count; else overalls -project="$PACKAGE" -covermode=count -- -race; fi
+
+# Of it successed and current branch is master, update coveralls score
+after_success:
+    - if [[ "$TRAVIS_BRANCH" == "master" ]] && [[ "$TRAVIS_TAG" == "" ]]; then goveralls -coverprofile=overalls.coverprofile -service travis-ci; fi
+
+# Prepare for depoly (Compile files and upload them to GitHub release)
+# Notice we only do deploy when it's a TAGGED build in master branch
+# - Compile to binary
+# - Add few info file
+before_deploy:
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then gox -ldflags "-s -w -X $VERSION_VARIABLE=`git describe --always --long --dirty --tags`" -osarch "$BUILD_TARGETS" -output "dist/{{.Dir}}_{{.OS}}_{{.Arch}}"; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then find dist -type f -exec sha1sum {} + > dist/SHA1; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then find dist -type f -exec sha512sum {} + > dist/SHA512; fi
+
+# Upload
+deploy:
+    provider: script
+    script: ghr -u "$GITHUB_USER" -delete -prerelease "v$TRAVIS_TAG" dist/
+    on:
+        branch: master
+        tags: true
+        condition: $TRAVIS_TAG =~ ^[0-9]
