@@ -1,6 +1,8 @@
 
                 COWARD - The Crypto-Obscured Forwarder
 
+            Copyright (C) 2017 NI Rui <nickriose@gmail.com>
+
 ================================================================================
 
 COWARD is a tool allowing you to transfer data secretly even when external env-
@@ -43,21 +45,21 @@ To get started, continue to type-in following commands in previous console:
  > cd bin
  > ./coward
 
-After that, usage screen will be displayed. Please follow those instructions to
-select and configure function you want to use.
+After that, a help screen will be displayed. Please follow those instructions to
+select and configure the function which you want to use.
 
 
 Download binary file
 --------------------------------------------------------------------------------
 
 If you prefer, you can download automatically compiled object files and execute
-them directly it on your computer.
+them directly on your computer.
 
 To download object file directly, please visit:
 https://github.com/nickrio/coward/releases
 
 However, you need to understand those object files was built automatically, none
-of it is checked by us. Which means we can't guarantee it's safety, you have to
+of it is verified by us. Which means we can't guarantee it's safety, you have to
 try it on your own risk.
 
 We recommend you to compile this application from source code by yourself so you
@@ -70,12 +72,12 @@ Continue Develop
 COWARD is designed to be extended. If you want to add new or alter existing
 functions, please checkout documents within program codes and the Wiki.
 
-If you decided to publish your own work based on COWARD, please notice this
-project is released under GPL licence.
+If you decided to publish your own work which based on COWARD, please notice
+this project is released under GPL licence.
 
-Please also notice we will not accept Pull Request except for those which fixing
-bugs. Please maintain your fork as if it is one of your own project and feel
-free to share it with others.
+Please also notice we will not accept Pull Requests except for those which
+intend to fix bugs. Please maintain your fork as if it is one of your own
+project and feel free to share it with others.
 
 
 Support
@@ -100,8 +102,8 @@ provided:
    Fix immediately
 
  - Problem on extending or continue developing COWARD
-   I'm glad to help you with that. Although, adding new function to COWARD is
-   not likely to happen.
+   I'm glad to help you with that. Although, adding new function to COWARD will
+   be something highly unlikely.
 
 Please notice if you can't provide any clue of the problem and you can't repro-
 duce the issue by yourself, your request will simpley be ingnored.
