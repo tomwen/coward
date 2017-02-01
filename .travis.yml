@@ -20,11 +20,12 @@ branches:
             - experimental
             - gh-pages
             - doc
+            - wip\/.*
             - /^v[0-9]/
 
-# Use lastest Go version
+# Use latest Go version
 go:
-    - master
+    - tip
 
 # Build proccess mainly grabbed from @tcnksm's
 # project: github.com/tcnksm-sample/travis-golang
@@ -35,37 +36,36 @@ go:
 # - ghr:       Upload compiled files to GitHub release
 # - gox:       For cross builds
 before_install:
-    - if [[ "$COVERALLS_TOKEN" == "" ]] || [[ "$GITHUB_TOKEN" == "" ]] || [[ "$GITHUB_USER" == "" ]]; then return 1; fi
     - go get github.com/go-playground/overalls
-    - if [[ "$TRAVIS_BRANCH" == "master" ]] && [[ "$TRAVIS_TAG" == "" ]]; then go get github.com/mattn/goveralls; fi
-    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then go get github.com/tcnksm/ghr; fi
-    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then go get github.com/mitchellh/gox; fi
+    - if [[ "$TRAVIS_BRANCH" == "master" && "$TRAVIS_TAG" == "" && "$COVERALLS_TOKEN" != "" ]]; then go get github.com/mattn/goveralls; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then go get github.com/tcnksm/ghr; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then go get github.com/mitchellh/gox; fi
 
 # Run the deploy:
 # - Check code style
 # - Test it with go test and generate 'coverage.out' file
 script:
     - go vet ./...
-    - if [[ "$TRAVIS_BRANCH" == "master" ]] || [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then overalls -project="$PACKAGE" -covermode=count; else overalls -project="$PACKAGE" -covermode=count -- -race; fi
+    - if [[ "$TRAVIS_BRANCH" == "master" || "$TRAVIS_TAG" =~ ^[0-9].*\-release$ ]]; then overalls -project="$PACKAGE" -covermode=count; else overalls -project="$PACKAGE" -covermode=count -- -race; fi
 
 # Of it successed and current branch is master, update coveralls score
 after_success:
-    - if [[ "$TRAVIS_BRANCH" == "master" ]] && [[ "$TRAVIS_TAG" == "" ]]; then goveralls -coverprofile=overalls.coverprofile -service travis-ci; fi
+    - if [[ "$TRAVIS_BRANCH" == "master" && "$TRAVIS_TAG" == "" && "$COVERALLS_TOKEN" != "" ]]; then goveralls -coverprofile=overalls.coverprofile -service travis-ci; fi
 
 # Prepare for depoly (Compile files and upload them to GitHub release)
 # Notice we only do deploy when it's a TAGGED build in master branch
 # - Compile to binary
 # - Add few info file
 before_deploy:
-    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then gox -ldflags "-s -w -X $VERSION_VARIABLE=`git describe --always --long --dirty --tags`" -osarch "$BUILD_TARGETS" -output "dist/{{.Dir}}_{{.OS}}_{{.Arch}}"; fi
-    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then find dist -type f -exec sha1sum {} + > dist/SHA1; fi
-    - if [[ "$TRAVIS_TAG" =~ ^[0-9] ]]; then find dist -type f -exec sha512sum {} + > dist/SHA512; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then gox -ldflags "-s -w -X $VERSION_VARIABLE=`git describe --always --long --dirty --tags`" -osarch "$BUILD_TARGETS" -output "dist/{{.Dir}}_{{.OS}}_{{.Arch}}"; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then find dist -type f -exec sha1sum {} + > dist/SHA1; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then find dist -type f -exec sha512sum {} + > dist/SHA512; fi
 
 # Upload
 deploy:
     provider: script
-    script: ghr -u "$GITHUB_USER" -delete -prerelease "v$TRAVIS_TAG" dist/
+    script: ghr -u "$GITHUB_USER" -delete -prerelease "v`(echo $TRAVIS_TAG | cut -d'-' -f 1)`" dist/
     on:
         branch: master
         tags: true
-        condition: $TRAVIS_TAG =~ ^[0-9]
+        condition: $TRAVIS_TAG =~ ^[0-9].*\-release$ && $GITHUB_USER != "" && $GITHUB_TOKEN != ""
