@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/nickrio/coward/common/codec"
+	"github.com/nickrio/coward/common/locked"
 	"github.com/nickrio/coward/common/logger"
 	"github.com/nickrio/coward/roles/channel/common"
 	"github.com/nickrio/coward/roles/channel/request"
@@ -63,7 +64,7 @@ func NewTCP(config common.ServerConfig) (common.Server, error) {
 		base: base{
 			channel:     config.ID,
 			defaultProc: config.DefaultProc,
-			shutdown:    false,
+			shutdown:    locked.NewBool(false),
 			timeout:     config.Timeout,
 			concurrence: config.Concurrence,
 			transporter: config.Transporter,
@@ -105,7 +106,7 @@ func (t *tcp) handle(client net.Conn, log logger.Logger) error {
 					"seconds, %d requests are waiting", connectDelay, waiting)
 			},
 			Error: func(retry, reset bool, err error) (bool, bool, error) {
-				if t.shutdown {
+				if t.shutdown.Get() {
 					return false, true, err
 				}
 
@@ -151,7 +152,7 @@ func (t *tcp) Serve(clientCloseWait *sync.WaitGroup) error {
 		listener, listenerErr := t.listener.Accept()
 
 		if listenerErr != nil {
-			if t.shutdown {
+			if t.shutdown.Get() {
 				break
 			}
 
@@ -204,13 +205,13 @@ func (t *tcp) Drop() {
 
 // Close shutdown current server
 func (t *tcp) Close(clientCloseWait *sync.WaitGroup) error {
-	if t.shutdown {
+	if t.shutdown.Get() {
 		return common.ErrServerAlreadyClosed
 	}
 
 	defer t.logger.Debugf("Closed")
 
-	t.shutdown = true
+	t.shutdown.Set(true)
 
 	closeErr := t.listener.Close()
 

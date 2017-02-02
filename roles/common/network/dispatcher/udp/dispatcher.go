@@ -173,11 +173,16 @@ func (u *dispatcher) handleReceive(
 				return selectErr
 			}
 
+			sendResult := make(chan error)
+
 			conn.Send(readData{
-				Len:  readedData.Len,
-				Addr: readedData.Addr,
-				Data: readedData.Buf[:],
+				Len:    readedData.Len,
+				Addr:   readedData.Addr,
+				Data:   readedData.Buf[:],
+				Result: sendResult,
 			})
+
+			<-sendResult
 
 			// Put back final
 			readedDataPool <- readedData

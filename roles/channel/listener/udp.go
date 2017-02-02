@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"github.com/nickrio/coward/common/codec"
+	"github.com/nickrio/coward/common/locked"
 	"github.com/nickrio/coward/roles/channel/common"
 	"github.com/nickrio/coward/roles/channel/request"
 	"github.com/nickrio/coward/roles/common/network/buffer"
@@ -61,7 +62,7 @@ func NewUDP(config common.ServerConfig) (common.Server, error) {
 		base: base{
 			channel:     config.ID,
 			defaultProc: config.DefaultProc,
-			shutdown:    false,
+			shutdown:    locked.NewBool(false),
 			timeout:     config.Timeout,
 			concurrence: config.Concurrence,
 			transporter: config.Transporter,
@@ -74,7 +75,7 @@ func NewUDP(config common.ServerConfig) (common.Server, error) {
 
 // Serve starts server
 func (u *udp) Serve(clientCloseWait *sync.WaitGroup) error {
-	u.shutdown = false
+	u.shutdown.Set(false)
 
 	u.logger.Debugf("Serving")
 	defer u.logger.Debugf("Closing")
@@ -106,7 +107,7 @@ func (u *udp) Serve(clientCloseWait *sync.WaitGroup) error {
 						connectDelay, waiting)
 				},
 				Error: func(retry, reset bool, err error) (bool, bool, error) {
-					if u.shutdown {
+					if u.shutdown.Get() {
 						return false, true, err
 					}
 
@@ -128,7 +129,7 @@ func (u *udp) Serve(clientCloseWait *sync.WaitGroup) error {
 
 		return requestErr
 	}, u.concurrence, u.timeout).Dispatch(u.listener, func(err error) bool {
-		return u.shutdown
+		return u.shutdown.Get()
 	})
 }
 
@@ -145,13 +146,13 @@ func (u *udp) Drop() {
 
 // Close shut the server down
 func (u *udp) Close(clientCloseWait *sync.WaitGroup) error {
-	if u.shutdown {
+	if u.shutdown.Get() {
 		return common.ErrServerAlreadyClosed
 	}
 
 	defer u.logger.Debugf("Closed")
 
-	u.shutdown = true
+	u.shutdown.Set(true)
 
 	closeErr := u.listener.Close()
 

@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nickrio/coward/common/locked"
 	"github.com/nickrio/coward/roles/common/network/conn"
 )
 
@@ -53,7 +54,7 @@ type dummyUDPListenerWriteResultData struct{}
 type dummyUDPListener struct {
 	readChan  chan dummyUDPListenerReadData
 	writeChan chan dummyUDPListenerWriteData
-	closed    bool
+	closed    locked.Boolean
 	writing   []dummyUDPListenerWriteData
 }
 
@@ -72,14 +73,14 @@ func (d *dummyUDPListener) WriteToUDP(
 }
 
 func (d *dummyUDPListener) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
-	if d.closed {
+	if d.closed.Get() {
 		return 0, nil, io.EOF
 	}
 
 	data, ok := <-d.readChan
 
 	if !ok {
-		d.closed = true
+		d.closed.Set(true)
 
 		return 0, nil, io.EOF
 	}
@@ -90,11 +91,11 @@ func (d *dummyUDPListener) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
 }
 
 func (d *dummyUDPListener) Close() error {
-	if d.closed {
+	if d.closed.Get() {
 		return nil
 	}
 
-	d.closed = true
+	d.closed.Set(true)
 
 	close(d.readChan)
 
@@ -104,7 +105,7 @@ func (d *dummyUDPListener) Close() error {
 type dummyUDPWriteDitcherListener struct {
 	readChan  chan dummyUDPListenerReadData
 	writeChan chan dummyUDPListenerWriteData
-	closed    bool
+	closed    locked.Boolean
 }
 
 func (d *dummyUDPWriteDitcherListener) WriteToUDP(
@@ -115,14 +116,14 @@ func (d *dummyUDPWriteDitcherListener) WriteToUDP(
 
 func (d *dummyUDPWriteDitcherListener) ReadFromUDP(
 	b []byte) (int, *net.UDPAddr, error) {
-	if d.closed {
+	if d.closed.Get() {
 		return 0, nil, io.EOF
 	}
 
 	data, ok := <-d.readChan
 
 	if !ok {
-		d.closed = true
+		d.closed.Set(true)
 
 		return 0, nil, io.EOF
 	}
@@ -133,11 +134,11 @@ func (d *dummyUDPWriteDitcherListener) ReadFromUDP(
 }
 
 func (d *dummyUDPWriteDitcherListener) Close() error {
-	if d.closed {
+	if d.closed.Get() {
 		return nil
 	}
 
-	d.closed = true
+	d.closed.Set(true)
 
 	close(d.readChan)
 
@@ -158,6 +159,7 @@ func TestDispatcherDispathOne(t *testing.T) {
 
 	l := &dummyUDPListener{
 		readChan: make(chan dummyUDPListenerReadData),
+		closed:   locked.NewBool(false),
 	}
 
 	testWait.Add(1)
@@ -270,15 +272,21 @@ func TestDispatcherDispathToMulitClients(t *testing.T) {
 		"127.0.0.2:1002": nil,
 		"127.0.0.2:1003": nil,
 	}
+	udpAddressKeys := []string{}
 	udpAddressLock := sync.Mutex{}
 	readed := 0
 
 	l := &dummyUDPListener{
 		readChan: make(chan dummyUDPListenerReadData),
+		closed:   locked.NewBool(false),
+	}
+
+	for key := range udpAddress {
+		udpAddressKeys = append(udpAddressKeys, key)
 	}
 
 	go func() {
-		for key := range udpAddress {
+		for _, key := range udpAddressKeys {
 			udpAddr, udpAddrErr := net.ResolveUDPAddr("udp", key)
 
 			if udpAddrErr != nil {
@@ -295,7 +303,7 @@ func TestDispatcherDispathToMulitClients(t *testing.T) {
 			}
 		}
 
-		for key := range udpAddress {
+		for _, key := range udpAddressKeys {
 			udpAddr, udpAddrErr := net.ResolveUDPAddr("udp", key)
 
 			if udpAddrErr != nil {
@@ -317,6 +325,9 @@ func TestDispatcherDispathToMulitClients(t *testing.T) {
 
 	d := New(func(udpConn conn.UDPReadWriteCloser) error {
 		defer func() {
+			udpAddressLock.Lock()
+			defer udpAddressLock.Unlock()
+
 			readed++
 
 			if readed >= len(udpAddress) {
@@ -340,7 +351,6 @@ func TestDispatcherDispathToMulitClients(t *testing.T) {
 
 			err := func() error {
 				udpAddressLock.Lock()
-
 				defer udpAddressLock.Unlock()
 
 				rAddString := rAddr.String()
@@ -448,6 +458,7 @@ func TestDispatcherDispathAndBumpOld(t *testing.T) {
 	sendWait := sync.WaitGroup{}
 	l := &dummyUDPListener{
 		readChan: make(chan dummyUDPListenerReadData),
+		closed:   locked.NewBool(false),
 	}
 
 	sendWait.Add(1)
@@ -573,6 +584,7 @@ func TestDispatcherDispathAndExpire(t *testing.T) {
 	sendWait := sync.WaitGroup{}
 	l := &dummyUDPListener{
 		readChan: make(chan dummyUDPListenerReadData),
+		closed:   locked.NewBool(false),
 	}
 
 	sendWait.Add(1)
@@ -685,6 +697,7 @@ func TestDispatcherDispathAndWrite(t *testing.T) {
 	sendWait := sync.WaitGroup{}
 	l := &dummyUDPListener{
 		readChan: make(chan dummyUDPListenerReadData),
+		closed:   locked.NewBool(false),
 	}
 
 	sendWait.Add(1)
@@ -821,6 +834,7 @@ func TestDispatcherForceClose(t *testing.T) {
 	callWait := sync.WaitGroup{}
 	l := &dummyUDPListener{
 		readChan: make(chan dummyUDPListenerReadData),
+		closed:   locked.NewBool(false),
 	}
 
 	callWait.Add(1)

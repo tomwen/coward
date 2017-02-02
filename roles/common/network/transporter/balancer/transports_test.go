@@ -27,16 +27,22 @@ import (
 	"time"
 
 	"github.com/nickrio/coward/common"
+	"github.com/nickrio/coward/common/locked"
 	"github.com/nickrio/coward/roles/common/network/transporter"
 	"github.com/nickrio/coward/roles/common/network/transporter/clients"
 )
 
 type dummyTSPHandler struct {
+	actualDelay   bool
 	delay         time.Duration
 	delayCallback func(time.Duration)
 }
 
 func (d *dummyTSPHandler) Handle() error {
+	if d.actualDelay {
+		time.Sleep(d.delay)
+	}
+
 	d.delayCallback(d.delay)
 
 	return nil
@@ -463,29 +469,29 @@ func TestTransportsReheadWithPrediction(t *testing.T) {
 type dummyPauseableTSPClient struct {
 	name      string
 	id        int
-	used      bool
+	used      locked.Boolean
 	delay     float64
 	waiting   uint64
 	weight    float64
-	pauseTime time.Duration
+	pauseTime locked.TimeDuration
 	next      *dummyPauseableTSPClient
 	prev      *dummyPauseableTSPClient
 }
 
 func (d *dummyPauseableTSPClient) ID() int {
-	time.Sleep(d.pauseTime)
+	time.Sleep(d.pauseTime.Get())
 
 	return d.id
 }
 
 func (d *dummyPauseableTSPClient) Used() bool {
-	time.Sleep(d.pauseTime)
+	time.Sleep(d.pauseTime.Get())
 
-	return d.used
+	return d.used.Get()
 }
 
 func (d *dummyPauseableTSPClient) Next() (clients.Client, error) {
-	time.Sleep(d.pauseTime)
+	time.Sleep(d.pauseTime.Get())
 
 	if d.next == nil {
 		return nil, clients.ErrClientsNotFound
@@ -495,7 +501,7 @@ func (d *dummyPauseableTSPClient) Next() (clients.Client, error) {
 }
 
 func (d *dummyPauseableTSPClient) Previous() (clients.Client, error) {
-	time.Sleep(d.pauseTime)
+	time.Sleep(d.pauseTime.Get())
 
 	if d.prev == nil {
 		return nil, clients.ErrClientsNotFound
@@ -505,13 +511,13 @@ func (d *dummyPauseableTSPClient) Previous() (clients.Client, error) {
 }
 
 func (d *dummyPauseableTSPClient) Delay() float64 {
-	time.Sleep(d.pauseTime)
+	time.Sleep(d.pauseTime.Get())
 
 	return d.delay
 }
 
 func (d *dummyPauseableTSPClient) Weight() float64 {
-	time.Sleep(d.pauseTime)
+	time.Sleep(d.pauseTime.Get())
 
 	return d.weight
 }
@@ -520,9 +526,9 @@ func (d *dummyPauseableTSPClient) Request(
 	builder transporter.HandlerBuilder,
 	option transporter.RequestOption,
 ) (bool, error) {
-	time.Sleep(d.pauseTime)
+	time.Sleep(d.pauseTime.Get())
 
-	d.used = true
+	d.used.Set(true)
 
 	builder(transporter.HandlerConfig{}).Handle()
 
@@ -531,16 +537,37 @@ func (d *dummyPauseableTSPClient) Request(
 	return false, nil
 }
 
+type dummyCounter struct {
+	common.Counter
+
+	AfterLocked  func(func(c uint64), uint64)
+	BeforeLocked func()
+}
+
+func (d *dummyCounter) LoadThenAdd(
+	callback func(c uint64), c uint64) uint64 {
+	d.BeforeLocked()
+
+	return d.Counter.LoadThenAdd(func(count uint64) {
+		d.AfterLocked(callback, count)
+	}, c)
+}
+
 func TestTransportsRequestFirstRequestMustBlockRest(t *testing.T) {
-	failed := false
+	failed := locked.NewBool(false)
+	forBlocking := locked.NewBool(false)
 	wait := sync.WaitGroup{}
+	subReqAdded := 0
+	subReqAddedLock := sync.Mutex{}
+	restRequestCreationStart := make(chan bool, 100)
+	restRequestCreationOK := make(chan bool)
 	newClient := &dummyPauseableTSPClient{
 		name:      "dummyPauseableTSPClient",
 		id:        0,
-		used:      false,
+		used:      locked.NewBool(false),
 		delay:     0.0,
 		weight:    0,
-		pauseTime: time.Duration(0),
+		pauseTime: locked.NewTimeDuration(time.Duration(0)),
 		next:      nil,
 		prev:      nil,
 	}
@@ -553,16 +580,51 @@ func TestTransportsRequestFirstRequestMustBlockRest(t *testing.T) {
 		transports: make([]*transport, 1),
 		sorted:     make([]*transport, 1),
 		sortLock:   sync.RWMutex{},
-		requesting: common.NewCounter(0),
+		requesting: &dummyCounter{
+			Counter: common.NewCounter(0),
+			AfterLocked: func(callback func(c uint64), count uint64) {
+				if !forBlocking.Get() {
+					newClient.pauseTime.Set(0)
+
+					callback(count)
+
+					return
+				}
+
+				forBlocking.Set(false)
+
+				for i := 0; i < 100; i++ {
+					restRequestCreationStart <- true
+				}
+
+				<-restRequestCreationOK
+
+				newClient.pauseTime.Set(100 * time.Millisecond)
+
+				callback(count)
+			},
+			BeforeLocked: func() {
+				subReqAddedLock.Lock()
+				defer subReqAddedLock.Unlock()
+
+				subReqAdded++
+
+				if subReqAdded < 101 {
+					return
+				}
+
+				restRequestCreationOK <- true
+				subReqAdded = 0
+			},
+		},
 	}
 
 	tsps.Register(0, newClient)
 
-	for i := 0; i < 100; i++ {
-		wait.Add(101)
+	for i := 0; i < 20; i++ {
+		forBlocking.Set(true)
 
-		// Let the first client block the request rehead
-		newClient.pauseTime = 60 * time.Millisecond
+		wait.Add(101)
 
 		go func() {
 			defer wait.Done()
@@ -572,6 +634,7 @@ func TestTransportsRequestFirstRequestMustBlockRest(t *testing.T) {
 				callback func(time.Duration),
 			) transporter.Handler {
 				return &dummyTSPHandler{
+					actualDelay:   false,
 					delay:         0,
 					delayCallback: callback,
 				}
@@ -582,20 +645,19 @@ func TestTransportsRequestFirstRequestMustBlockRest(t *testing.T) {
 			})
 		}()
 
-		time.Sleep(10 * time.Millisecond)
+		created := 0
 
-		// Not block
-		newClient.pauseTime = 0
+		for _ = range restRequestCreationStart {
+			created++
 
-		for i := 0; i < 100; i++ {
 			go func() {
 				startTime := time.Now()
 
 				defer func() {
 					finished := time.Now().Sub(startTime)
 
-					if finished < 40*time.Millisecond {
-						failed = true
+					if finished < 100*time.Millisecond {
+						failed.Set(true)
 					}
 
 					wait.Done()
@@ -606,6 +668,7 @@ func TestTransportsRequestFirstRequestMustBlockRest(t *testing.T) {
 					callback func(time.Duration),
 				) transporter.Handler {
 					return &dummyTSPHandler{
+						actualDelay:   false,
 						delay:         0,
 						delayCallback: callback,
 					}
@@ -615,14 +678,16 @@ func TestTransportsRequestFirstRequestMustBlockRest(t *testing.T) {
 					},
 				})
 			}()
+
+			if created >= 100 {
+				break
+			}
 		}
 
 		wait.Wait()
 	}
 
-	if failed {
-		t.Errorf("The first request seems failed to block rest ones")
-
+	if failed.Get() {
 		return
 	}
 }
@@ -632,10 +697,10 @@ func BenchmarkTransportsRequest100Requests(b *testing.B) {
 	newClient := &dummyPauseableTSPClient{
 		name:      "dummyPauseableTSPClient",
 		id:        0,
-		used:      false,
+		used:      locked.NewBool(false),
 		delay:     0.0,
 		weight:    0,
-		pauseTime: time.Duration(0),
+		pauseTime: locked.NewTimeDuration(time.Duration(0)),
 		next:      nil,
 		prev:      nil,
 	}
@@ -668,6 +733,7 @@ func BenchmarkTransportsRequest100Requests(b *testing.B) {
 					callback func(time.Duration),
 				) transporter.Handler {
 					return &dummyTSPHandler{
+						actualDelay:   false,
 						delay:         0,
 						delayCallback: callback,
 					}

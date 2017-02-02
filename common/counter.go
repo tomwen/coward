@@ -48,7 +48,6 @@ func NewCounter(defaultD uint64) Counter {
 // Add adds number to the counter
 func (c *counter) Add(u uint64) uint64 {
 	c.locker.Lock()
-
 	defer c.locker.Unlock()
 
 	c.data += u
@@ -59,7 +58,6 @@ func (c *counter) Add(u uint64) uint64 {
 // Remove subtract number from the counter
 func (c *counter) Remove(u uint64) uint64 {
 	c.locker.Lock()
-
 	defer c.locker.Unlock()
 
 	c.data -= u
@@ -70,7 +68,6 @@ func (c *counter) Remove(u uint64) uint64 {
 // Load call the callback to read the counter
 func (c *counter) Load(loader func(d uint64)) {
 	c.locker.RLock()
-
 	defer c.locker.RUnlock()
 
 	loader(c.data)
@@ -79,7 +76,6 @@ func (c *counter) Load(loader func(d uint64)) {
 // LoadThenAdd loads current counter result and add number to the counter
 func (c *counter) LoadThenAdd(callback func(uint64), u uint64) uint64 {
 	c.locker.Lock()
-
 	defer c.locker.Unlock()
 
 	callback(c.data)
@@ -92,7 +88,6 @@ func (c *counter) LoadThenAdd(callback func(uint64), u uint64) uint64 {
 // LoadThenAdd loads current counter result and remove number from the counter
 func (c *counter) LoadThenRemove(callback func(uint64), u uint64) uint64 {
 	c.locker.Lock()
-
 	defer c.locker.Unlock()
 
 	callback(c.data)

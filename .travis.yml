@@ -25,7 +25,7 @@ branches:
 
 # Use latest Go version
 go:
-    - tip
+    - master
 
 # Build proccess mainly grabbed from @tcnksm's
 # project: github.com/tcnksm-sample/travis-golang
@@ -36,7 +36,7 @@ go:
 # - ghr:       Upload compiled files to GitHub release
 # - gox:       For cross builds
 before_install:
-    - go get github.com/go-playground/overalls
+    - if [[ "$TRAVIS_BRANCH" == "master" && "$TRAVIS_TAG" == "" && "$COVERALLS_TOKEN" != "" ]]; then go get github.com/go-playground/overalls; fi
     - if [[ "$TRAVIS_BRANCH" == "master" && "$TRAVIS_TAG" == "" && "$COVERALLS_TOKEN" != "" ]]; then go get github.com/mattn/goveralls; fi
     - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then go get github.com/tcnksm/ghr; fi
     - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then go get github.com/mitchellh/gox; fi
@@ -46,10 +46,11 @@ before_install:
 # - Test it with go test and generate 'coverage.out' file
 script:
     - go vet ./...
-    - if [[ "$TRAVIS_BRANCH" == "master" || "$TRAVIS_TAG" =~ ^[0-9].*\-release$ ]]; then overalls -project="$PACKAGE" -covermode=count; else overalls -project="$PACKAGE" -covermode=count -- -race; fi
+    - go test ./... -race
 
 # Of it successed and current branch is master, update coveralls score
 after_success:
+    - if [[ "$TRAVIS_BRANCH" == "master" && "$TRAVIS_TAG" == "" && "$COVERALLS_TOKEN" != "" ]]; then overalls -project="$PACKAGE" -covermode=count; fi
     - if [[ "$TRAVIS_BRANCH" == "master" && "$TRAVIS_TAG" == "" && "$COVERALLS_TOKEN" != "" ]]; then goveralls -coverprofile=overalls.coverprofile -service travis-ci; fi
 
 # Prepare for depoly (Compile files and upload them to GitHub release)
