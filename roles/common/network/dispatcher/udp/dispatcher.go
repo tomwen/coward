@@ -144,6 +144,9 @@ func (u *dispatcher) handleReceive(
 				setErr := udpNodes.Set(rAddrString, clientConn)
 
 				if setErr != nil {
+					clientConn.Close()
+					clientConn.Delete()
+
 					// Put back 1
 					readedDataPool <- readedData
 
@@ -167,17 +170,24 @@ func (u *dispatcher) handleReceive(
 				conn = clientConn
 
 			default:
+				conn.Close()
+
 				// Put back 2
 				readedDataPool <- readedData
 
 				return selectErr
 			}
 
+			sendResult := make(chan error)
+
 			conn.Send(readData{
-				Len:  readedData.Len,
-				Addr: readedData.Addr,
-				Data: readedData.Buf[:],
+				Len:    readedData.Len,
+				Addr:   readedData.Addr,
+				Data:   readedData.Buf[:],
+				Result: sendResult,
 			})
+
+			<-sendResult
 
 			// Put back final
 			readedDataPool <- readedData

@@ -18,23 +18,51 @@
 //  along with Crypto-Obscured Forwarder. If not, see
 //  <http://www.gnu.org/licenses/>.
 
-package listener
+package locked
 
-import (
-	"time"
+import "sync"
 
-	ccommon "github.com/nickrio/coward/common"
-	"github.com/nickrio/coward/common/locked"
-	"github.com/nickrio/coward/common/logger"
-	"github.com/nickrio/coward/roles/common/network/transporter"
-)
+// Boolean is lockable bool
+type Boolean interface {
+	Set(newValue bool)
+	Get() bool
+	Load(func(current bool))
+}
 
-type base struct {
-	channel     byte
-	defaultProc ccommon.Proccessors
-	shutdown    locked.Boolean
-	timeout     time.Duration
-	concurrence uint16
-	transporter transporter.Client
-	logger      logger.Logger
+type boolean struct {
+	value bool
+	lock  sync.RWMutex
+}
+
+// NewBool creates a new lockable Boolean
+func NewBool(defaultV bool) Boolean {
+	return &boolean{
+		value: defaultV,
+		lock:  sync.RWMutex{},
+	}
+}
+
+// Set sets a new value
+func (b *boolean) Set(newValue bool) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	b.value = newValue
+}
+
+// Get gets current value
+func (b *boolean) Get() bool {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
+	return b.value
+}
+
+// Load loads current value to a callback, and keep blocking while
+// the callback is running
+func (b *boolean) Load(callback func(current bool)) {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
+	callback(b.value)
 }

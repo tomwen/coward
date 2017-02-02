@@ -24,6 +24,8 @@ import (
 	"errors"
 	"io"
 	"net"
+
+	"github.com/nickrio/coward/common/locked"
 )
 
 // UDP Client errors
@@ -43,7 +45,7 @@ type client struct {
 	sendCancelChan  chan bool
 	readCancelChan  chan bool
 	writeResultChan chan writeResult
-	closed          bool
+	closed          locked.Boolean
 }
 
 // newClient creates a new an artifical UDP connection
@@ -58,13 +60,13 @@ func newClient(
 		sendCancelChan:  make(chan bool),
 		readCancelChan:  make(chan bool),
 		writeResultChan: make(chan writeResult),
-		closed:          false,
+		closed:          locked.NewBool(false),
 	}
 }
 
 // WriteToUDP writes data to UDP connection, the address field will be ignored
 func (c *client) WriteToUDP(b []byte, addr *net.UDPAddr) (int, error) {
-	if c.closed {
+	if c.closed.Get() {
 		return 0, io.EOF
 	}
 
@@ -81,24 +83,28 @@ func (c *client) WriteToUDP(b []byte, addr *net.UDPAddr) (int, error) {
 
 // ReadFromUDP reads data from UDP connection
 func (c *client) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
-	if c.closed {
+	if c.closed.Get() {
 		return 0, nil, io.EOF
 	}
 
 	select {
 	case rData, ok := <-c.readChan:
 		if !ok {
-			c.closed = true
+			c.closed.Set(true)
+
+			rData.Result <- io.EOF
 
 			return 0, nil, io.EOF
 		}
 
 		copy(b, rData.Data[:rData.Len])
 
+		rData.Result <- nil
+
 		return rData.Len, rData.Addr, nil
 
 	case <-c.readCancelChan:
-		c.closed = true
+		c.closed.Set(true)
 
 		return 0, nil, io.EOF
 	}
@@ -106,7 +112,7 @@ func (c *client) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
 
 // Send send data to current UDP connection, this method is thread-safe
 func (c *client) Send(r readData) error {
-	if c.closed {
+	if c.closed.Get() {
 		return ErrClientAlreadyClosed
 	}
 
@@ -116,10 +122,12 @@ func (c *client) Send(r readData) error {
 
 	case _, ok := <-c.sendCancelChan:
 		if !ok {
-			c.closed = true
+			c.closed.Set(true)
 
 			close(c.readChan)
 		}
+
+		r.Result <- ErrClientSendCancelled
 
 		return ErrClientSendCancelled
 	}
@@ -127,7 +135,7 @@ func (c *client) Send(r readData) error {
 
 // Delete tells current UDP connection it has been removed
 func (c *client) Delete() {
-	c.closed = true
+	c.closed.Set(true)
 
 	select {
 	case c.sendCancelChan <- true:
@@ -139,11 +147,11 @@ func (c *client) Delete() {
 
 // Close shuts down current connection
 func (c *client) Close() error {
-	if c.closed {
+	if c.closed.Get() {
 		return ErrClientAlreadyClosed
 	}
 
-	c.closed = true
+	c.closed.Set(true)
 
 	select {
 	case c.readCancelChan <- true:

@@ -61,7 +61,8 @@ type writeData struct {
 }
 
 type readData struct {
-	Len  int
-	Addr *net.UDPAddr
-	Data []byte
+	Len    int
+	Addr   *net.UDPAddr
+	Data   []byte
+	Result chan error
 }

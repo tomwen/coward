@@ -26,6 +26,7 @@ import (
 	"time"
 
 	ccommon "github.com/nickrio/coward/common"
+	"github.com/nickrio/coward/common/locked"
 	"github.com/nickrio/coward/common/role"
 	"github.com/nickrio/coward/roles/channel/common"
 	"github.com/nickrio/coward/roles/channel/listener"
@@ -68,31 +69,6 @@ func New(transporter transporter.Client, cfg Config) role.Role {
 
 func (c *channel) Spawn(closeNotify chan<- bool) error {
 	serverCloseWait := sync.WaitGroup{}
-
-	c.serverDownWait.Add(1)
-
-	// Wait for all server been shutdown
-	go func() {
-		keepCloseLoop := true
-
-		serverCloseWait.Wait()
-
-		go func() {
-			defer c.serverDownWait.Done()
-
-			for keepCloseLoop {
-				for _, serv := range c.servers {
-					serv.Server.Drop()
-				}
-
-				c.transporter.Kickoff()
-			}
-		}()
-
-		c.clientCloseWait.Wait()
-
-		keepCloseLoop = false
-	}()
 
 	for _, channel := range c.cfg.Channels {
 		serverTimeout := channel.Timeout
@@ -164,6 +140,31 @@ func (c *channel) Spawn(closeNotify chan<- bool) error {
 	}
 
 	c.closeNotify = closeNotify
+
+	c.serverDownWait.Add(1)
+
+	// Wait for all server been shutdown
+	go func() {
+		keepCloseLoop := locked.NewBool(true)
+
+		serverCloseWait.Wait()
+
+		go func() {
+			defer c.serverDownWait.Done()
+
+			for keepCloseLoop.Get() {
+				for _, serv := range c.servers {
+					serv.Server.Drop()
+				}
+
+				c.transporter.Kickoff()
+			}
+		}()
+
+		c.clientCloseWait.Wait()
+
+		keepCloseLoop.Set(false)
+	}()
 
 	return nil
 }
