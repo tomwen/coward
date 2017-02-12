@@ -25,7 +25,7 @@ import (
 
 	"github.com/nickrio/coward/application"
 	"github.com/nickrio/coward/roles/channel"
-	"github.com/nickrio/coward/roles/common/network/wrapper"
+	"github.com/nickrio/coward/roles/common/network/communicator/common/wrapper"
 	"github.com/nickrio/coward/roles/proxy"
 	"github.com/nickrio/coward/roles/socks5"
 )

@@ -30,9 +30,6 @@ var (
 	ErrPartnerCurrentSessionCompleted = errors.New(
 		"Current partner session is completed")
 
-	ErrPartnerConnectionUnleashed = errors.New(
-		"Partner connection is unleashed")
-
 	ErrRelayQuit = errors.New(
 		"Relay quitted")
 )

@@ -22,13 +22,13 @@ package request
 
 import (
 	"io"
-	"net"
 
 	"github.com/nickrio/coward/common"
 	"github.com/nickrio/coward/common/codec"
 	"github.com/nickrio/coward/roles/common/network"
 	"github.com/nickrio/coward/roles/common/network/buffer"
 	"github.com/nickrio/coward/roles/common/network/messaging"
+	"github.com/nickrio/coward/roles/common/network/transporter"
 )
 
 type base struct {
@@ -37,49 +37,48 @@ type base struct {
 	channelID    byte
 	buffer       buffer.Slice
 	proc         common.Proccessors
-	server       net.Conn
+	server       io.ReadWriter
 	retryRequest bool
 	resetTspConn bool
 }
 
 func (b *base) Error(err error) (bool, bool, error) {
-	if decodeErr, ok := err.(*codec.Failure); ok {
-		b.server.Close()
+	handleErr := err
+	tspErr, isTSPErr := err.(transporter.Error)
 
-		return false, true, decodeErr
+	if isTSPErr {
+		handleErr = tspErr.Raw()
 	}
 
-	switch err {
-	case io.EOF:
-		return b.retryRequest, b.resetTspConn, nil
+	switch e := handleErr.(type) {
+	case codec.Error:
+		return false, true, err
 
-	case network.ErrProcRemoteTargetClosed:
-		fallthrough
-	case network.ErrProcServerInternalError:
-		fallthrough
-	case network.ErrProcUnsupported:
-		fallthrough
-	case network.ErrProcInvalid:
-		fallthrough
-	case network.ErrProcServerRefused:
-		fallthrough
-	case network.ErrProcTimeout:
-		fallthrough
-	case network.ErrProcRemoteTargetUnconnectable:
-		fallthrough
-	case network.ErrProcUnsupportedCommand:
-		return false, false, err
+	default:
+		switch e {
+		case io.EOF:
+			return b.retryRequest, b.resetTspConn, nil
+
+		case network.ErrProcRemoteTargetClosed:
+			fallthrough
+		case network.ErrProcServerInternalError:
+			fallthrough
+		case network.ErrProcUnsupported:
+			fallthrough
+		case network.ErrProcInvalid:
+			fallthrough
+		case network.ErrProcServerRefused:
+			fallthrough
+		case network.ErrProcTimeout:
+			fallthrough
+		case network.ErrProcRemoteTargetUnconnectable:
+			fallthrough
+		case network.ErrProcUnsupportedCommand:
+			return false, false, err
+		}
 	}
 
 	return b.retryRequest, b.resetTspConn, err
-}
-
-func (b *base) Unleash() error {
-	buf := [8]byte{}
-
-	_, wErr := b.Write(b.server, messaging.Unleash, nil, buf[:])
-
-	return wErr
 }
 
 func (b *base) Close() error {

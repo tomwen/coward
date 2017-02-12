@@ -75,12 +75,8 @@ func New(transporters []transporter.Client) Clients {
 // iterate iterates client array and hand over array elements
 // to a callback function
 func (c *clients) iterate(start int, end int, callback func(cc *client) bool) {
-	continueIterate := false
-
 	for _, cc := range c.clients[start:end] {
-		continueIterate = callback(cc)
-
-		if continueIterate {
+		if callback(cc) {
 			continue
 		}
 
@@ -91,16 +87,13 @@ func (c *clients) iterate(start int, end int, callback func(cc *client) bool) {
 // sorted returns a sorted client list. Fast client first
 func (c *clients) sorted(callback func(cc *client) bool) {
 	current := c.pole.Head
-	continueIterate := false
 
 	for {
 		if current == nil {
 			break
 		}
 
-		continueIterate = callback(current)
-
-		if !continueIterate {
+		if !callback(current) {
 			break
 		}
 
@@ -161,7 +154,7 @@ func (c *clients) Kickoff() {
 
 	c.iterate(0, c.pole.Len, func(c *client) bool {
 		go func() {
-			kickWait.Done()
+			defer kickWait.Done()
 
 			c.Kickoff()
 		}()

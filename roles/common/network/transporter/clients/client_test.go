@@ -50,7 +50,7 @@ type dummyDelayedClient struct {
 func (d *dummyDelayedClient) Request(
 	builder transporter.HandlerBuilder,
 	option transporter.RequestOption) (bool, error) {
-	option.Delay("", d.delay, d.waiting)
+	option.Delay(d.delay, d.waiting)
 
 	return true, nil
 }
@@ -69,7 +69,7 @@ func (d *dummyRandomDelayedClient) Request(
 	d.waiting = uint64(rand.Int63())
 	d.delay = rand.Float64()
 
-	option.Delay("", d.delay, d.waiting)
+	option.Delay(d.delay, d.waiting)
 
 	return true, nil
 }
@@ -355,7 +355,7 @@ func TestClientRequestOrderFullSort(t *testing.T) {
 				return nil
 			},
 			transporter.RequestOption{
-				Delay: func(addr string, delay float64, waiting uint64) {},
+				Delay: func(delay float64, waiting uint64) {},
 			},
 		)
 	}
@@ -424,7 +424,7 @@ func TestClientRequestOrderSortFirst2(t *testing.T) {
 				return nil
 			},
 			transporter.RequestOption{
-				Delay: func(addr string, delay float64, waiting uint64) {},
+				Delay: func(delay float64, waiting uint64) {},
 			},
 		)
 	}
@@ -482,7 +482,7 @@ func TestClientRequestOrderSortFirst1(t *testing.T) {
 				return nil
 			},
 			transporter.RequestOption{
-				Delay: func(addr string, delay float64, waiting uint64) {},
+				Delay: func(delay float64, waiting uint64) {},
 			},
 		)
 	}
@@ -556,7 +556,7 @@ func BenchmarkClientRequest(b *testing.B) {
 				return nil
 			},
 			transporter.RequestOption{
-				Delay: func(addr string, delay float64, waiting uint64) {},
+				Delay: func(delay float64, waiting uint64) {},
 			},
 		)
 	}

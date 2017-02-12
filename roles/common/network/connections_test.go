@@ -22,7 +22,6 @@ package network
 
 import (
 	"net"
-	"sync"
 	"testing"
 	"time"
 )
@@ -62,22 +61,7 @@ func (d *dummyConn) SetWriteDeadline(t time.Time) error {
 }
 
 func TestConnectionsPutGetDel(t *testing.T) {
-	csWait := sync.WaitGroup{}
-	cs := NewConnections()
-
-	csWait.Add(1)
-
-	go func() {
-		defer csWait.Done()
-
-		cs.Serve()
-	}()
-
-	defer func() {
-		cs.Close()
-
-		csWait.Wait()
-	}()
+	cs := NewConnections(256)
 
 	cs.Put("C1", &dummyConn{})
 	cs.Put("C2", &dummyConn{})
@@ -87,6 +71,13 @@ func TestConnectionsPutGetDel(t *testing.T) {
 	if getErr != ErrConnectionsConnectionNotFound {
 		t.Error("Expecting error to be ErrConnectionsConnectionNotFound, got",
 			getErr)
+
+		return
+	}
+
+	if conn != nil {
+		t.Error("Expecting nil from a non-existed Connections fetch, " +
+			"got something else instead")
 
 		return
 	}
@@ -113,6 +104,12 @@ func TestConnectionsPutGetDel(t *testing.T) {
 	if getErr != ErrConnectionsConnectionNotFound {
 		t.Error("Expecting error to be ErrConnectionsConnectionNotFound, got",
 			getErr)
+
+		return
+	}
+
+	if conn != nil {
+		t.Error("Still getting something AFTER it's been deleted")
 
 		return
 	}
@@ -168,22 +165,7 @@ func TestConnectionsPutGetDel(t *testing.T) {
 }
 
 func TestConnectionsIterate(t *testing.T) {
-	csWait := sync.WaitGroup{}
-	cs := NewConnections()
-
-	csWait.Add(1)
-
-	go func() {
-		defer csWait.Done()
-
-		cs.Serve()
-	}()
-
-	defer func() {
-		cs.Close()
-
-		csWait.Wait()
-	}()
+	cs := NewConnections(256)
 
 	cs.Put("C1", &dummyConn{})
 
@@ -232,22 +214,7 @@ func TestConnectionsIterate(t *testing.T) {
 }
 
 func BenchmarkConnections(b *testing.B) {
-	csWait := sync.WaitGroup{}
-	cs := NewConnections()
-
-	csWait.Add(1)
-
-	go func() {
-		defer csWait.Done()
-
-		cs.Serve()
-	}()
-
-	defer func() {
-		cs.Close()
-
-		csWait.Wait()
-	}()
+	cs := NewConnections(256)
 
 	d := &dummyConn{}
 

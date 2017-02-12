@@ -21,9 +21,10 @@
 package conn
 
 import (
-	"io"
 	"net"
 	"time"
+
+	"github.com/nickrio/coward/common/locked"
 )
 
 // Client is the connection from socks5 server to it's client
@@ -42,6 +43,7 @@ type client struct {
 	net.Conn
 
 	config ClientConfig
+	closed locked.Boolean
 }
 
 // WrapClientConn wraps a raw net.Conn and turn it to client
@@ -54,70 +56,17 @@ func WrapClientConn(raw net.Conn, config ClientConfig) Client {
 	return &client{
 		Conn:   NewError(timedConn),
 		config: config,
+		closed: locked.NewBool(false),
 	}
-}
-
-// Read reads data from client conn
-func (c *client) Read(b []byte) (int, error) {
-	rLen, rErr := c.Conn.Read(b)
-
-	if rErr == nil {
-		return rLen, rErr
-	}
-
-	switch rErr {
-	case io.EOF:
-		fallthrough
-	case ErrTimeout:
-		fallthrough
-	case ErrReadTimeout:
-		fallthrough
-	case ErrRefused:
-		fallthrough
-	case ErrAborted:
-		fallthrough
-	case ErrResetted:
-		c.Close()
-	}
-
-	return rLen, rErr
-}
-
-// Write write data to client conn
-func (c *client) Write(b []byte) (int, error) {
-	wLen, wErr := c.Conn.Write(b)
-
-	if wErr == nil {
-		return wLen, wErr
-	}
-
-	switch wErr {
-	case io.EOF:
-		fallthrough
-	case ErrTimeout:
-		fallthrough
-	case ErrReadTimeout:
-		fallthrough
-	case ErrRefused:
-		fallthrough
-	case ErrAborted:
-		fallthrough
-	case ErrResetted:
-		c.Close()
-	}
-
-	return wLen, wErr
 }
 
 // Close closes the connection to the client
 func (c *client) Close() error {
-	closeErr := c.Conn.Close()
+	if !c.closed.Get() {
+		c.closed.Set(true)
 
-	if closeErr != nil {
-		return closeErr
+		c.config.OnClose()
 	}
 
-	c.config.OnClose()
-
-	return nil
+	return c.Conn.Close()
 }

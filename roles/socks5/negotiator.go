@@ -126,7 +126,7 @@ func (n *negotiator) Inital() {
 			// Read VER and NMETHODS
 			rLen, rErr := io.ReadFull(rw, n.buffer[:2])
 
-			if rErr != nil {
+			if rErr != nil || rLen < 2 {
 				return common.ErrFailedToReadHandshakeHead
 			}
 

@@ -194,6 +194,9 @@ func (u *udp) Handle() error {
 					u.buffer.Client.Buffer)
 
 				if replyErr != nil {
+					u.Write(u.server, messaging.EOF, nil,
+						u.buffer.Server.ExtendedBuffer)
+
 					udpListener.Close()
 
 					return replyErr

@@ -54,7 +54,6 @@ type transports struct {
 
 // iterate iterates through all transports
 func (t *transports) iterate(callback func(tsp *transport) bool) {
-	continueLoop := false
 	current := t.pole.Head
 
 	for {
@@ -62,9 +61,7 @@ func (t *transports) iterate(callback func(tsp *transport) bool) {
 			break
 		}
 
-		continueLoop = callback(current)
-
-		if !continueLoop {
+		if !callback(current) {
 			break
 		}
 

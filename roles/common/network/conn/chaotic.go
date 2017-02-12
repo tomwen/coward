@@ -50,12 +50,12 @@ func NewChaotic(c net.Conn) net.Conn {
 // Write write to conn
 func (c *chaotic) Write(b []byte) (int, error) {
 	var wErr error
+	var wLen int
+	var curPos int
+	var curLen int
 
-	wLen := 0
 	remainLen := len(b)
 	totalWLen := 0
-	curPos := 0
-	curLen := 0
 
 	for {
 		if minChaoticWriteLen >= remainLen {

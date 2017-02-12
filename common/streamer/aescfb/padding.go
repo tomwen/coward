@@ -18,7 +18,7 @@
 //  along with Crypto-Obscured Forwarder. If not, see
 //  <http://www.gnu.org/licenses/>.
 
-package aesCFB
+package aescfb
 
 import (
 	"errors"

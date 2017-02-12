@@ -110,7 +110,7 @@ func (d *dummyTSPClient) Request(
 
 	builder(transporter.HandlerConfig{}).Handle()
 
-	option.Delay("", d.delay, d.waiting)
+	option.Delay(d.delay, d.waiting)
 
 	return false, nil
 }
@@ -532,7 +532,7 @@ func (d *dummyPauseableTSPClient) Request(
 
 	builder(transporter.HandlerConfig{}).Handle()
 
-	option.Delay("", d.delay, d.waiting)
+	option.Delay(d.delay, d.waiting)
 
 	return false, nil
 }
@@ -639,7 +639,7 @@ func TestTransportsRequestFirstRequestMustBlockRest(t *testing.T) {
 					delayCallback: callback,
 				}
 			}, transporter.RequestOption{
-				Delay: func(addr string, connectDelay float64, waiting uint64) {
+				Delay: func(connectDelay float64, waiting uint64) {
 
 				},
 			})
@@ -673,8 +673,7 @@ func TestTransportsRequestFirstRequestMustBlockRest(t *testing.T) {
 						delayCallback: callback,
 					}
 				}, transporter.RequestOption{
-					Delay: func(
-						addr string, connectDelay float64, waiting uint64) {
+					Delay: func(connectDelay float64, waiting uint64) {
 					},
 				})
 			}()
@@ -738,8 +737,7 @@ func BenchmarkTransportsRequest100Requests(b *testing.B) {
 						delayCallback: callback,
 					}
 				}, transporter.RequestOption{
-					Delay: func(
-						addr string, connectDelay float64, waiting uint64) {
+					Delay: func(connectDelay float64, waiting uint64) {
 					},
 				})
 			}()

@@ -39,9 +39,8 @@ import (
 type tcp struct {
 	base
 
-	listener     net.Listener
-	connections  network.Connections
-	shutdownWait sync.WaitGroup
+	listener    net.Listener
+	connections network.Connections
 }
 
 // NewTCP creates a new TCP channel listener
@@ -70,15 +69,13 @@ func NewTCP(config common.ServerConfig) (common.Server, error) {
 			transporter: config.Transporter,
 			logger:      config.Logger,
 		},
-		listener:     listen,
-		connections:  network.NewConnections(),
-		shutdownWait: sync.WaitGroup{},
+		listener:    listen,
+		connections: network.NewConnections(256),
 	}, nil
 }
 
 // handle handles incomming requests
 func (t *tcp) handle(client net.Conn, log logger.Logger) error {
-	selectedLogger := log
 	cancellerChan := make(transporter.Signal, 1)
 	buf := buffer.Buffer{}
 
@@ -99,26 +96,28 @@ func (t *tcp) handle(client net.Conn, log logger.Logger) error {
 		transporter.RequestOption{
 			Canceller: cancellerChan,
 			Buffer:    buf.Slice(),
-			Delay: func(addr string, connectDelay float64, waiting uint64) {
-				selectedLogger = log.Context(addr)
-
-				selectedLogger.Debugf("Transporter selected. Delay %f "+
-					"seconds, %d requests are waiting", connectDelay, waiting)
-			},
+			Delay:     func(connectDelay float64, waiting uint64) {},
 			Error: func(retry, reset bool, err error) (bool, bool, error) {
 				if t.shutdown.Get() {
 					return false, true, err
 				}
 
-				switch err.(type) {
-				case *codec.Failure:
-					selectedLogger.Warningf("Decode error: %s. Retrying", err)
+				switch ee := err.(type) {
+				case transporter.Error:
+					switch eee := ee.Raw().(type) {
+					case codec.Error:
+						log.Warningf(
+							"Decode error: %s. Retrying", eee)
 
-					return true, true, err
+						return true, true, err
+					}
+
+				case conn.ErrorConnError:
+					retry = false
 				}
 
 				if retry {
-					selectedLogger.Debugf("Error: %s. Retrying", err)
+					log.Debugf("Error: %s. Retrying", err)
 				}
 
 				return retry, reset, err
@@ -138,13 +137,6 @@ func (t *tcp) Serve(clientCloseWait *sync.WaitGroup) error {
 	for ccLoop := uint16(0); ccLoop < t.concurrence; ccLoop++ {
 		concurrentLimitChan <- true
 	}
-
-	t.shutdownWait.Add(1)
-	go func() {
-		defer t.shutdownWait.Done()
-
-		t.connections.Serve()
-	}()
 
 	for {
 		<-concurrentLimitChan
@@ -220,10 +212,6 @@ func (t *tcp) Close(clientCloseWait *sync.WaitGroup) error {
 	}
 
 	clientCloseWait.Wait()
-
-	t.connections.Close()
-
-	t.shutdownWait.Wait()
 
 	return nil
 }

@@ -74,12 +74,11 @@ func (w *writer) Write(p []byte) (int, error) {
 	dataParagraphSize := BufferSize - w.streamer.OverheadSize()
 	paragraphs := math.Ceil(float64(dataLength) / float64(dataParagraphSize))
 	paragraphStart := 0
-	paragraphEnd := 0
 
 	for part := float64(0); part < paragraphs; part++ {
 		w.buffer.Reset()
 
-		paragraphEnd = paragraphStart + dataParagraphSize
+		paragraphEnd := paragraphStart + dataParagraphSize
 
 		if paragraphEnd > dataLength {
 			paragraphEnd = dataLength

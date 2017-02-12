@@ -43,12 +43,14 @@ before_install:
 
 # Run the deploy:
 # - Check code style
-# - Test it with go test and generate 'coverage.out' file
+# - Run race & uint test
 script:
     - go vet ./...
     - go test ./... -race
 
-# Of it successed and current branch is master, update coveralls score
+# Of it succeed
+# - Run coverage test
+# - Upload coverage resutlt to coveralls
 after_success:
     - if [[ "$TRAVIS_BRANCH" == "master" && "$TRAVIS_TAG" == "" && "$COVERALLS_TOKEN" != "" ]]; then overalls -project="$PACKAGE" -covermode=count; fi
     - if [[ "$TRAVIS_BRANCH" == "master" && "$TRAVIS_TAG" == "" && "$COVERALLS_TOKEN" != "" ]]; then goveralls -coverprofile=overalls.coverprofile -service travis-ci; fi
@@ -61,6 +63,8 @@ before_deploy:
     - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then gox -ldflags "-s -w -X $VERSION_VARIABLE=`git describe --always --long --dirty --tags`" -osarch "$BUILD_TARGETS" -output "dist/{{.Dir}}_{{.OS}}_{{.Arch}}"; fi
     - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then find dist -type f -exec sha1sum {} + > dist/SHA1; fi
     - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then find dist -type f -exec sha512sum {} + > dist/SHA512; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then echo "SUMMED HASH -> SHA1 =   `sha1sum dist/SHA1`"; fi
+    - if [[ "$TRAVIS_TAG" =~ ^[0-9].*\-release$ && "$GITHUB_USER" != "" && "$GITHUB_TOKEN" != "" ]]; then echo "SUMMED HASH -> SHA512 = `sha512sum dist/SHA512`"; fi
 
 # Upload
 deploy:

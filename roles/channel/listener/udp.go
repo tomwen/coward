@@ -81,7 +81,6 @@ func (u *udp) Serve(clientCloseWait *sync.WaitGroup) error {
 	defer u.logger.Debugf("Closing")
 
 	return dispatcher.New(func(client conn.UDPReadWriteCloser) error {
-		selectedLogger := u.logger
 		cancellerChan := make(transporter.Signal, 1)
 		buf := buffer.Buffer{}
 
@@ -99,28 +98,28 @@ func (u *udp) Serve(clientCloseWait *sync.WaitGroup) error {
 			transporter.RequestOption{
 				Canceller: cancellerChan,
 				Buffer:    buf.Slice(),
-				Delay: func(addr string, connectDelay float64, waiting uint64) {
-					selectedLogger = u.logger.Context(addr)
-
-					selectedLogger.Debugf("Transporter selected. Delay %f "+
-						"seconds, %d requests are waiting",
-						connectDelay, waiting)
-				},
+				Delay:     func(connectDelay float64, waiting uint64) {},
 				Error: func(retry, reset bool, err error) (bool, bool, error) {
 					if u.shutdown.Get() {
 						return false, true, err
 					}
 
-					switch err.(type) {
-					case *codec.Failure:
-						selectedLogger.Warningf(
-							"Decode error: %s. Retrying", err)
+					switch ee := err.(type) {
+					case transporter.Error:
+						switch eee := ee.Raw().(type) {
+						case codec.Error:
+							u.logger.Warningf(
+								"Decode error: %s. Retrying", eee)
 
-						return true, true, err
+							return true, true, err
+						}
+
+					case conn.ErrorConnError:
+						retry = false
 					}
 
 					if retry {
-						selectedLogger.Debugf("Error: %s. Retrying", err)
+						u.logger.Debugf("Error: %s. Retrying", err)
 					}
 
 					return retry, reset, err

@@ -23,7 +23,6 @@ package handler
 import (
 	"io"
 	"math/rand"
-	"net"
 	"time"
 
 	"github.com/nickrio/coward/common"
@@ -37,7 +36,7 @@ import (
 type handler struct {
 	messaging.Messaging
 
-	client         net.Conn
+	client         io.ReadWriter
 	buffer         buffer.Slice
 	proc           common.Proccessors
 	channels       *pcommon.Channels
@@ -85,93 +84,97 @@ func (h *handler) Handle() error {
 }
 
 func (h *handler) Error(err error) (bool, bool, error) {
+	handleErr := err
+	tspErr, isTSPErr := handleErr.(transporter.Error)
+
+	if isTSPErr {
+		handleErr = tspErr.Raw()
+	}
+
 	// Return the error to disconnect from client transporter
 	// Return nil to keep serve the client transporter
 
 	// If it's a decode error, send random bytes back so the
 	// client can figure out that server is receiving invalid
 	// data and retry connection after that
-	if decodeErr, ok := err.(*codec.Failure); ok {
+
+	switch e := handleErr.(type) {
+	case codec.Error:
 		randomLength := rand.Intn(len(h.buffer.Client.Buffer))
 
 		_, rErr := rand.Read(h.buffer.Client.Buffer[:randomLength])
 
 		if rErr != nil {
 			h.Write(h.client, messaging.Error,
-				[]byte(decodeErr.Error()), h.buffer.Client.ExtendedBuffer)
+				[]byte(e.Error()), h.buffer.Client.ExtendedBuffer)
 		} else {
 			h.Write(h.client, messaging.Error,
 				h.buffer.Client.Buffer[:randomLength],
 				h.buffer.Client.ExtendedBuffer)
 		}
 
-		return false, false, nil
-	}
-
-	// For other error, check it and handle it accordingly
-	switch err {
-	case io.EOF:
-		return false, h.resetTspConn, nil
-
-	case common.ErrCommandUnsupported:
-		h.Write(h.client, messaging.UnknownCommand, nil,
-			h.buffer.Client.ExtendedBuffer)
-
-	case ErrRequestingUndefindedChannel:
-		h.Write(h.client, messaging.Unsupported, nil,
-			h.buffer.Client.ExtendedBuffer)
-
-	case ErrInvalidChannelID:
-		fallthrough
-	case ErrInvalidIPv6AddrPortLength:
-		fallthrough
-	case ErrInvalidIPv4AddrPortLength:
-		fallthrough
-	case ErrInvalidHostAddressPortLength:
-		fallthrough
-	case ErrDecodingPortBytes:
-		h.Write(h.client, messaging.Invalid, nil,
-			h.buffer.Client.ExtendedBuffer)
-
-	case ErrHostNotFound:
-		fallthrough
-	case ErrDestinationUnconnectable:
-		fallthrough
-	case ErrInvalidAddress:
-		h.Write(h.client, messaging.Unconnectable, nil,
-			h.buffer.Client.ExtendedBuffer)
-
-	case ErrLoopbackAddressIsForbidden:
-		fallthrough
-	case ErrZeroAddressIsForbidden:
-		fallthrough
-	case ErrZeroPortIsForbidden:
-		h.Write(h.client, messaging.Forbidden, nil,
-			h.buffer.Client.ExtendedBuffer)
-
-	case ErrInvalidUDPEphemeralPortAddr:
-		fallthrough
-	case ErrFailedToOpenUDPEphemeralPort:
-		h.Write(h.client, messaging.InternalError, nil,
-			h.buffer.Client.ExtendedBuffer)
-
 		return false, false, err
 
-	case ErrFailedSendConnectConfirmSignal:
-		return false, true, err
-
 	default:
-		// Default means don't send anything, or we may end up sending
-		// multiple error feed back to user
+		// For other error, check it and handle it accordingly
+		switch e {
+		case io.EOF:
+			return false, h.resetTspConn, nil
+
+		case common.ErrCommandUnsupported:
+			h.Write(h.client, messaging.UnknownCommand, nil,
+				h.buffer.Client.ExtendedBuffer)
+
+		case ErrRequestingUndefindedChannel:
+			h.Write(h.client, messaging.Unsupported, nil,
+				h.buffer.Client.ExtendedBuffer)
+
+		case ErrInvalidChannelID:
+			fallthrough
+		case ErrInvalidIPv6AddrPortLength:
+			fallthrough
+		case ErrInvalidIPv4AddrPortLength:
+			fallthrough
+		case ErrInvalidHostAddressPortLength:
+			fallthrough
+		case ErrDecodingPortBytes:
+			h.Write(h.client, messaging.Invalid, nil,
+				h.buffer.Client.ExtendedBuffer)
+
+		case ErrHostNotFound:
+			fallthrough
+		case ErrDestinationUnconnectable:
+			fallthrough
+		case ErrInvalidAddress:
+			h.Write(h.client, messaging.Unconnectable, nil,
+				h.buffer.Client.ExtendedBuffer)
+
+		case ErrLoopbackAddressIsForbidden:
+			fallthrough
+		case ErrZeroAddressIsForbidden:
+			fallthrough
+		case ErrZeroPortIsForbidden:
+			h.Write(h.client, messaging.Forbidden, nil,
+				h.buffer.Client.ExtendedBuffer)
+
+		case ErrInvalidUDPEphemeralPortAddr:
+			fallthrough
+		case ErrFailedToOpenUDPEphemeralPort:
+			h.Write(h.client, messaging.InternalError, nil,
+				h.buffer.Client.ExtendedBuffer)
+
+			return false, false, err
+
+		case ErrFailedSendConnectConfirmSignal:
+			return false, true, err
+
+		default:
+			// Default means don't send anything, or we may end up sending
+			// multiple error feed back to user
+		}
 	}
 
 	return false, h.resetTspConn, nil
-}
-
-func (h *handler) Unleash() error {
-	_, wErr := h.Write(h.client, messaging.Unleash, nil, h.tempBuf[:])
-
-	return wErr
 }
 
 func (h *handler) Close() error {

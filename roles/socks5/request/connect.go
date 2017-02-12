@@ -114,8 +114,7 @@ func (c *connect) Handle() error {
 	wErr := c.errorRespond(c.client, c.buffer.Client.ExtendedBuffer, 0)
 
 	if wErr != nil {
-		c.Write(c.server, messaging.Unleash, nil,
-			c.buffer.Server.ExtendedBuffer)
+		c.Write(c.server, messaging.EOF, nil, c.buffer.Server.ExtendedBuffer)
 
 		return ErrFailedSendReadySignalToClient
 	}

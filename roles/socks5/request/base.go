@@ -30,6 +30,7 @@ import (
 	"github.com/nickrio/coward/roles/common/network"
 	"github.com/nickrio/coward/roles/common/network/buffer"
 	"github.com/nickrio/coward/roles/common/network/messaging"
+	"github.com/nickrio/coward/roles/common/network/transporter"
 	"github.com/nickrio/coward/roles/socks5/common"
 )
 
@@ -39,7 +40,7 @@ type base struct {
 	buffer        buffer.Slice
 	proc          ccommon.Proccessors
 	address       []byte
-	server        net.Conn
+	server        io.ReadWriter
 	client        net.Conn
 	delayFeedback func(time.Duration)
 	retryRequest  bool
@@ -81,53 +82,58 @@ func (b *base) errorRespond(
 }
 
 func (b *base) Error(err error) (bool, bool, error) {
-	// If it's a decode error for client, close the connection
-	// to the server
-	if decodeErr, ok := err.(*codec.Failure); ok {
-		b.server.Close()
+	handleErr := err
+	tspErr, isTSPErr := handleErr.(transporter.Error)
 
-		return false, true, decodeErr
+	if isTSPErr {
+		handleErr = tspErr.Raw()
 	}
 
-	switch err {
-	case io.EOF:
-		return b.retryRequest, b.resetTspConn, nil
+	switch e := handleErr.(type) {
+	case codec.Error:
+		return false, true, err
 
-	case network.ErrProcRemoteTargetClosed:
+	default:
+		switch e {
+		case io.EOF:
+			return b.retryRequest, b.resetTspConn, nil
 
-	case network.ErrProcServerInternalError:
-		fallthrough
-	case network.ErrProcUnsupported:
-		fallthrough
-	case network.ErrProcInvalid:
-		b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
-			common.ErrorGeneralFailure)
+		case network.ErrProcRemoteTargetClosed:
 
-		return false, false, err
+		case network.ErrProcServerInternalError:
+			fallthrough
+		case network.ErrProcUnsupported:
+			fallthrough
+		case network.ErrProcInvalid:
+			b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
+				common.ErrorGeneralFailure)
 
-	case network.ErrProcServerRefused:
-		b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
-			common.ErrorForbidden)
+			return false, false, err
 
-		return false, false, err
+		case network.ErrProcServerRefused:
+			b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
+				common.ErrorForbidden)
 
-	case network.ErrProcTimeout:
-		b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
-			common.ErrorHostUnreachable)
+			return false, false, err
 
-		return false, false, err
+		case network.ErrProcTimeout:
+			b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
+				common.ErrorHostUnreachable)
 
-	case network.ErrProcRemoteTargetUnconnectable:
-		b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
-			common.ErrorConnectionRefused)
+			return false, false, err
 
-		return false, false, err
+		case network.ErrProcRemoteTargetUnconnectable:
+			b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
+				common.ErrorConnectionRefused)
 
-	case network.ErrProcUnsupportedCommand:
-		b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
-			common.ErrorCommandNotSupported)
+			return false, false, err
 
-		return false, false, err
+		case network.ErrProcUnsupportedCommand:
+			b.errorRespond(b.client, b.buffer.Client.ExtendedBuffer,
+				common.ErrorCommandNotSupported)
+
+			return false, false, err
+		}
 	}
 
 	// Little rules about whether or not the tsp connection must be
@@ -135,14 +141,6 @@ func (b *base) Error(err error) (bool, bool, error) {
 	//  ANY error that happened before letting server enters relay
 	//  status, MUST cause the transporter connection been resetted
 	return b.retryRequest, b.resetTspConn, err
-}
-
-func (b *base) Unleash() error {
-	buf := [8]byte{}
-
-	_, wErr := b.Write(b.server, messaging.Unleash, nil, buf[:])
-
-	return wErr
 }
 
 func (b *base) Close() error {

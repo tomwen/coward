@@ -33,28 +33,28 @@ type Address struct{}
 // Address errors
 var (
 	ErrUnknownAddressType = errors.New(
-		"Unknown address type")
+		"Unknown Socks5 address type")
 
 	ErrUnknownAddressData = errors.New(
-		"Unknown address data")
+		"Unknown Socks5 address data")
 
 	ErrInvalidIPv4DataLength = errors.New(
-		"Invalid IPv4 data length")
+		"Invalid IPv4 data length for the Socks5 request")
 
 	ErrInvalidIPv4BufferLength = errors.New(
-		"Invalid IPv4 buffer length")
+		"Invalid IPv4 buffer length for the Socks5 request")
 
 	ErrInvalidIPv6DataLength = errors.New(
-		"Invalid IPv6 data length")
+		"Invalid IPv6 data length for the Socks5 request")
 
 	ErrInvalidIPv6BufferLength = errors.New(
-		"Invalid IPv6 buffer length")
+		"Invalid IPv6 buffer length for the Socks5 request")
 
 	ErrInvalidDomainData = errors.New(
-		"Invalid Domain data")
+		"Invalid Domain data for the Socks5 request")
 
 	ErrInvalidDomainBufferLength = errors.New(
-		"Invalid Domain buffer length")
+		"Invalid Domain buffer length for the Socks5 request")
 )
 
 const (

@@ -72,7 +72,7 @@ func TestClientsExport(t *testing.T) {
 			return nil
 		},
 		transporter.RequestOption{
-			Delay: func(addr string, delay float64, waiting uint64) {},
+			Delay: func(delay float64, waiting uint64) {},
 		},
 	)
 
@@ -99,7 +99,7 @@ func TestClientsExport(t *testing.T) {
 			return nil
 		},
 		transporter.RequestOption{
-			Delay: func(addr string, delay float64, waiting uint64) {},
+			Delay: func(delay float64, waiting uint64) {},
 		},
 	)
 
@@ -126,7 +126,7 @@ func TestClientsExport(t *testing.T) {
 			return nil
 		},
 		transporter.RequestOption{
-			Delay: func(addr string, delay float64, waiting uint64) {},
+			Delay: func(delay float64, waiting uint64) {},
 		},
 	)
 
@@ -186,7 +186,7 @@ func BenchmarkClientsExport(b *testing.B) {
 				return nil
 			},
 			transporter.RequestOption{
-				Delay: func(addr string, delay float64, waiting uint64) {},
+				Delay: func(delay float64, waiting uint64) {},
 			},
 		)
 	}

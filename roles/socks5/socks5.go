@@ -43,7 +43,6 @@ type socks5 struct {
 	connector    balancer.Balancer
 	config       Config
 	serverWaiter sync.WaitGroup
-	clientWaiter sync.WaitGroup
 	listener     net.Listener
 	atypeStream  common.ATYP
 	atypeBlock   common.Address
@@ -59,7 +58,6 @@ func New(conn balancer.Balancer, cfg Config) role.Role {
 		connector:    conn,
 		config:       cfg,
 		serverWaiter: sync.WaitGroup{},
-		clientWaiter: sync.WaitGroup{},
 		atypeStream:  defaults.GetATYPStream(),
 		atypeBlock:   defaults.GetATYPBlock(),
 		auther:       defaults.GetAuther(cfg.Auth),
@@ -116,7 +114,7 @@ func (s *socks5) Unspawn() error {
 		s.closeNotify <- true
 	}()
 
-	s.config.Logger.Infof("Waiting port to be closed")
+	s.config.Logger.Infof("Closing connections")
 
 	s.serverWaiter.Wait()
 
@@ -128,17 +126,14 @@ func (s *socks5) Unspawn() error {
 func (s *socks5) serve() {
 	keepKicking := true
 	shutdownWait := sync.WaitGroup{}
-	connections := network.NewConnections()
+	clientWait := sync.WaitGroup{}
+	connections := network.NewConnections(256)
 
-	shutdownWait.Add(2)
+	shutdownWait.Add(1)
 
 	defer func() {
 		go func() {
-			defer func() {
-				connections.Close()
-
-				shutdownWait.Done()
-			}()
+			defer shutdownWait.Done()
 
 			for keepKicking {
 				connections.Iterate(func(name string, conn net.Conn) {
@@ -149,17 +144,11 @@ func (s *socks5) serve() {
 			}
 		}()
 
-		s.clientWaiter.Wait()
+		clientWait.Wait()
 
 		keepKicking = false
 
 		shutdownWait.Wait()
-	}()
-
-	go func() {
-		defer shutdownWait.Done()
-
-		connections.Serve()
 	}()
 
 	for {
@@ -180,7 +169,7 @@ func (s *socks5) serve() {
 
 		connections.Put(name, client)
 
-		s.clientWaiter.Add(1)
+		clientWait.Add(1)
 
 		go func(name string, c net.Conn) {
 			defer func() {
@@ -190,7 +179,7 @@ func (s *socks5) serve() {
 				// We'll try to close it anyway
 				c.Close()
 
-				s.clientWaiter.Done()
+				clientWait.Done()
 			}()
 
 			var handleErr error
@@ -224,7 +213,6 @@ func (s *socks5) serve() {
 func (s *socks5) handle(client net.Conn, log logger.Logger) error {
 	var err error
 
-	selectedLogger := log
 	cancellerChan := make(transporter.Signal)
 	buf := buffer.Buffer{}
 
@@ -256,28 +244,27 @@ func (s *socks5) handle(client net.Conn, log logger.Logger) error {
 			return s.connector.Request(addr, builder, transporter.RequestOption{
 				Canceller: cancellerChan,
 				Buffer:    buf.Slice(),
-				Delay: func(addr string, connectDelay float64, wait uint64) {
-					selectedLogger = log.Context(addr)
-
-					selectedLogger.Debugf("Transporter selected. Delay %f "+
-						"seconds, %d requests are waiting", connectDelay, wait)
-				},
+				Delay:     func(connectDelay float64, wait uint64) {},
 				Error: func(retry, reset bool, err error) (bool, bool, error) {
 					if s.shuttingDown {
 						return false, true, err
 					}
 
-					switch err.(type) {
-					case *codec.Failure:
-						selectedLogger.Warningf(
-							"Decode error: %s. Retrying", err)
+					switch opte := err.(type) {
+					case transporter.Error:
+						switch e := opte.Raw().(type) {
+						case codec.Error:
+							log.Warningf("Decode error: %s. Retrying", e)
 
-						return true, true, err
+							return true, true, err
+						}
+
+					case conn.ErrorConnError:
+						retry = false
 					}
 
 					if retry {
-						selectedLogger.Debugf(
-							"Error: %s. Retrying", err)
+						log.Debugf("Error: %s. Retrying", err)
 					}
 
 					return retry, reset, err

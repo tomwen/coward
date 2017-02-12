@@ -31,9 +31,10 @@ import (
 	"github.com/nickrio/coward/common/print"
 	"github.com/nickrio/coward/common/role"
 	"github.com/nickrio/coward/roles/common/network"
+	ccommon "github.com/nickrio/coward/roles/common/network/communicator/common"
+	"github.com/nickrio/coward/roles/common/network/communicator/common/wrapper"
+	"github.com/nickrio/coward/roles/common/network/communicator/tcp"
 	"github.com/nickrio/coward/roles/common/network/transporter"
-	tcomm "github.com/nickrio/coward/roles/common/network/transporter/common"
-	"github.com/nickrio/coward/roles/common/network/wrapper"
 	"github.com/nickrio/coward/roles/proxy/common"
 )
 
@@ -105,8 +106,8 @@ type ConfigInput struct {
 	noisers             []wrapper.Disrupter
 	noisersList         []string
 	connPersistentSet   bool
-	SelectedEncryptAlgo func(key []byte) tcomm.ConnWrapper
-	SelectedNoiser      func(setting []byte) tcomm.ConnDisrupter
+	SelectedEncryptAlgo func(key []byte) ccommon.ConnWrapper
+	SelectedNoiser      func(setting []byte) ccommon.ConnDisrupter
 	SelectedChannels    common.Channels
 	ListenIface         net.IP
 	ListenAddr          string          `json:"listen_address" cfg:"la,-listen-address:Which address this backend server will listen on"`
@@ -346,13 +347,16 @@ func Role() role.Registration {
 		) (role.Role, error) {
 			cfg := config.(*ConfigInput)
 
-			return New(transporter.NewServer(
+			tspServer := transporter.NewServer(tcp.NewServer(
+				cfg.ListenIface,
+				cfg.ListenPort,
+				time.Duration(cfg.ConnectTimeout)*time.Second,
 				time.Duration(cfg.IdleTimeout)*time.Second,
-				cfg.ConnPersistent,
 				cfg.SelectedEncryptAlgo([]byte(cfg.EncryptionKey)),
-				cfg.SelectedNoiser([]byte(cfg.EncryptionKey))), Config{
-				Interface:      cfg.ListenIface,
-				Port:           cfg.ListenPort,
+				cfg.SelectedNoiser([]byte(cfg.EncryptionKey)),
+			), cfg.ConnPersistent)
+
+			return New(tspServer, Config{
 				Channels:       cfg.SelectedChannels,
 				Logger:         log.Context("Proxy"),
 				ConnectTimeout: time.Duration(cfg.ConnectTimeout) * time.Second,

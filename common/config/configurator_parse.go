@@ -211,14 +211,12 @@ func (c *configurator) Parse(parameters []byte) error {
 						string, interface{}) error)(
 						fieldRefl.Type().Name(), fieldRefl.Interface())
 
-					if verifyErr == nil {
-						continue
+					if verifyErr != nil {
+						return newParseError(
+							verifyErr, currentFieldTag,
+							currentLabel.Start(), currentLabel.End(),
+							parameters)
 					}
-
-					return newParseError(
-						verifyErr, currentFieldTag,
-						currentLabel.Start(), currentLabel.End(),
-						parameters)
 				}
 
 				verifier := currentCfgPtr.MethodByName(

@@ -31,11 +31,12 @@ import (
 	"github.com/nickrio/coward/common/logger"
 	"github.com/nickrio/coward/common/print"
 	"github.com/nickrio/coward/common/role"
+	ccomm "github.com/nickrio/coward/roles/common/network/communicator/common"
+	"github.com/nickrio/coward/roles/common/network/communicator/common/wrapper"
+	"github.com/nickrio/coward/roles/common/network/communicator/tcp"
 	"github.com/nickrio/coward/roles/common/network/transporter"
 	"github.com/nickrio/coward/roles/common/network/transporter/balancer"
 	"github.com/nickrio/coward/roles/common/network/transporter/clients"
-	tcomm "github.com/nickrio/coward/roles/common/network/transporter/common"
-	"github.com/nickrio/coward/roles/common/network/wrapper"
 )
 
 // ConfigAuth is the bare configuration for --auth-user option
@@ -62,8 +63,8 @@ type Noiser string
 // ConfigRemote is remote servers
 type ConfigRemote struct {
 	connPersistentSet   bool
-	SelectedEncryptAlgo func(key []byte) tcomm.ConnWrapper
-	SelectedNoiser      func(setting []byte) tcomm.ConnDisrupter
+	SelectedEncryptAlgo func(key []byte) ccomm.ConnWrapper
+	SelectedNoiser      func(setting []byte) ccomm.ConnDisrupter
 	RemoteHost          string `json:"remote_host" cfg:"rh,-host:Host name of the backend server"`
 	RemotePort          uint16 `json:"remote_port" cfg:"rp,-port:Port of the backend server"`
 	IdleTimeout         uint16 `json:"idle" cfg:"it,-idle:How long the connection can stay idle before been taken down"`
@@ -462,17 +463,21 @@ func Role() role.Registration {
 
 			for transportIndex, transportCfg := range cfg.Remotes {
 				transporters[transportIndex] = transporter.NewClient(
-					transportCfg.RemoteHost,
-					transportCfg.RemotePort,
-					time.Duration(transportCfg.IdleTimeout)*time.Second,
-					transportCfg.ConnPersistent,
+					tcp.NewClientBuilder(
+						transportCfg.RemoteHost,
+						transportCfg.RemotePort,
+						time.Duration(transportCfg.ConnectTimeout)*time.Second,
+						time.Duration(transportCfg.IdleTimeout)*time.Second,
+						transportCfg.SelectedEncryptAlgo(
+							[]byte(transportCfg.EncryptionKey)),
+						transportCfg.SelectedNoiser(
+							[]byte(transportCfg.NoiserData)),
+					),
+					time.Duration(transportCfg.ConnectTimeout)*time.Second,
 					transportCfg.ConnConcurrent,
 					transportCfg.ConnectRetry,
-					time.Duration(transportCfg.ConnectTimeout)*time.Second,
-					transportCfg.SelectedEncryptAlgo(
-						[]byte(transportCfg.EncryptionKey)),
-					transportCfg.SelectedNoiser(
-						[]byte(transportCfg.NoiserData)))
+					transportCfg.ConnPersistent,
+				)
 
 				if transportCfg.IdleTimeout > maxIdleDuration {
 					maxIdleDuration = transportCfg.IdleTimeout

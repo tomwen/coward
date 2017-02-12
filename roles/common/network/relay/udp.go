@@ -139,24 +139,13 @@ func (u *udp) handlePartnerStream() error {
 
 			return ErrTerminalConnectionClosed
 		}).
-		Register(messaging.Unleash, func(
-			b []byte,
-			rw io.ReadWriter,
-			size uint16,
-		) error {
-			if size <= 0 {
-				return ErrPartnerConnectionUnleashed
-			}
-
-			io.ReadFull(rw, b[:size])
-
-			return ErrPartnerConnectionUnleashed
-		}).
 		Register(messaging.EOF, func(
 			b []byte,
 			rw io.ReadWriter,
 			size uint16,
 		) error {
+			closing = true
+
 			if size <= 0 {
 				return ErrPartnerCurrentSessionCompleted
 			}
@@ -214,11 +203,9 @@ func (u *udp) Relay() error {
 		switch resultErr {
 		case ErrPartnerCurrentSessionCompleted:
 			// Do nothing
-		case ErrPartnerConnectionUnleashed:
+
+		case ErrTerminalConnectionClosed:
 			u.Write(u.partner, messaging.EOF, nil,
-				u.buffer.Server.ExtendedBuffer)
-		default:
-			u.Write(u.partner, messaging.Unleash, nil,
 				u.buffer.Server.ExtendedBuffer)
 		}
 
@@ -232,7 +219,7 @@ func (u *udp) Relay() error {
 
 	// Quitter chan
 	case resultErr = <-u.handler.Quitter():
-		u.Write(u.partner, messaging.Unleash, nil, tmpBuf[:])
+		u.Write(u.partner, messaging.Closed, nil, tmpBuf[:])
 
 		<-parter2terminalErrorChan
 
@@ -242,7 +229,7 @@ func (u *udp) Relay() error {
 
 	// Close chan
 	case <-u.closeChan:
-		u.Write(u.partner, messaging.Unleash, nil, tmpBuf[:])
+		u.Write(u.partner, messaging.Closed, nil, tmpBuf[:])
 
 		<-parter2terminalErrorChan
 

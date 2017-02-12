@@ -21,14 +21,11 @@
 package proxy
 
 import (
-	"net"
-	"strconv"
 	"sync"
 
 	"github.com/nickrio/coward/common/codec"
 	"github.com/nickrio/coward/common/logger"
 	"github.com/nickrio/coward/common/role"
-	"github.com/nickrio/coward/roles/common/network"
 	"github.com/nickrio/coward/roles/common/network/buffer"
 	"github.com/nickrio/coward/roles/common/network/transporter"
 	"github.com/nickrio/coward/roles/proxy/handler"
@@ -39,7 +36,6 @@ type proxy struct {
 	config       Config
 	clientWaiter sync.WaitGroup
 	serverWaiter sync.WaitGroup
-	listener     net.Listener
 	shuttingDown bool
 	closeNotify  chan<- bool
 }
@@ -54,7 +50,6 @@ func New(
 		config:       cfg,
 		clientWaiter: sync.WaitGroup{},
 		serverWaiter: sync.WaitGroup{},
-		listener:     nil,
 		shuttingDown: false,
 		closeNotify:  nil,
 	}
@@ -63,28 +58,35 @@ func New(
 }
 
 func (s *proxy) Spawn(closeNotify chan<- bool) error {
-	listen, listenErr := net.Listen("tcp", net.JoinHostPort(
-		s.config.Interface.String(),
-		strconv.FormatUint(uint64(s.config.Port), 10)))
+	var listenErr error
 
-	if listenErr != nil {
-		s.config.Logger.Errorf("Can't listen due to error %s", listenErr)
-
-		return listenErr
-	}
-
-	s.listener = listen
+	acceptMeta := make(chan transporter.ServerConnAccepterMeta)
 
 	s.serverWaiter.Add(1)
 
 	go func() {
 		defer s.serverWaiter.Done()
 
-		s.serve()
+		listenErr = s.serve(s.config.Logger, acceptMeta)
 	}()
 
+	accepterInfo := <-acceptMeta
+
+	if accepterInfo == nil {
+		// Wait the Transporter Server down before continuing,
+		// because s.serve may returned AFTER acceptMeta been filled
+		// If we don't wait, listenErr may contains nothing
+		s.serverWaiter.Wait()
+
+		if listenErr != nil {
+			s.config.Logger.Errorf("Can't listen due to error %s", listenErr)
+
+			return listenErr
+		}
+	}
+
 	s.config.Logger.Infof(
-		"Server is up, listening %s", s.listener.Addr())
+		"Server is up, listening %s", accepterInfo.Name())
 
 	s.closeNotify = closeNotify
 	s.shuttingDown = false
@@ -95,7 +97,7 @@ func (s *proxy) Spawn(closeNotify chan<- bool) error {
 func (s *proxy) Unspawn() error {
 	s.shuttingDown = true // Set flag before actually close
 
-	closeErr := s.listener.Close()
+	closeErr := s.transporter.Close()
 
 	if closeErr != nil {
 		s.config.Logger.Errorf(
@@ -117,122 +119,54 @@ func (s *proxy) Unspawn() error {
 	return nil
 }
 
-func (s *proxy) serve() {
-	shutdownWait := sync.WaitGroup{}
-	forceCloseChan := make(chan bool)
-	connections := network.NewConnections()
-
-	defer func() {
-		breakLoop := false
-
-		shutdownWait.Add(1)
-
-		go func() {
-			defer func() {
-				close(forceCloseChan)
-
-				connections.Close()
-
-				shutdownWait.Done()
-			}()
-
-			for !breakLoop {
-				select {
-				case forceCloseChan <- true:
-				default:
-					connections.Iterate(func(name string, conn net.Conn) {
-						conn.Close()
-					})
-				}
-			}
-		}()
-
-		s.clientWaiter.Wait()
-
-		breakLoop = true
-
-		shutdownWait.Wait()
-	}()
-
-	shutdownWait.Add(1)
-
-	go func() {
-		defer shutdownWait.Done()
-
-		connections.Serve()
-	}()
-
-	for {
-		client, acceptErr := s.listener.Accept()
-
-		if acceptErr != nil {
-			if s.shuttingDown {
-				break
-			}
-
-			s.config.Logger.Errorf(
-				"Can't accpet connection due to error: %s", acceptErr)
-
-			continue
-		}
-
-		name := client.RemoteAddr().String()
-
-		connections.Put(name, client)
-
-		s.clientWaiter.Add(1)
-
-		go func(name string, c net.Conn) {
-			defer func() {
-				connections.Del(name)
-
-				// Ignore the error if there is any.
-				// We'll try to close it anyway
-				c.Close()
-
-				s.clientWaiter.Done()
-			}()
-
-			cLog := s.config.Logger.Context(
-				c.RemoteAddr().String())
-
-			var handleErr error
-
-			defer func() {
-				if handleErr != nil {
-					cLog.Debugf("Disconnected: %s", handleErr)
-				} else {
-					cLog.Debugf("Disconnected")
-				}
-			}()
-
-			cLog.Debugf("Connected")
-
-			handleErr = s.handle(c, cLog, forceCloseChan)
-		}(name, client)
-	}
-}
-
-func (s *proxy) handle(
-	client net.Conn, log logger.Logger, closeChan chan bool) error {
-	buf := buffer.Buffer{}
-
+func (s *proxy) serve(
+	log logger.Logger,
+	acceptInfo chan transporter.ServerConnAccepterMeta,
+) error {
 	return s.transporter.Serve(
-		client, func(hc transporter.HandlerConfig) transporter.Handler {
-			return handler.NewHandler(hc, s.config.ConnectTimeout,
-				s.config.IdleTimeout, &s.config.Channels, closeChan)
-		}, transporter.ServeOption{
-			Error: func(er error) error {
-				switch er.(type) {
-				case *codec.Failure:
-					log.Warningf("Decode error: %s", er)
-				default:
-					log.Debugf("General error: %s", er)
-				}
+		func(client transporter.ServerClientInfo) transporter.ServeOption {
+			buf := buffer.Buffer{}
+			clientLog := log.Context(client.Name())
 
-				return nil
-			},
-			Buffer: buf.Slice(),
-		},
-	)
+			return transporter.ServeOption{
+				Buffer: buf.Slice(),
+				Handler: func(
+					hc transporter.HandlerConfig) transporter.Handler {
+					return handler.NewHandler(hc, s.config.ConnectTimeout,
+						s.config.IdleTimeout, &s.config.Channels, nil)
+				},
+				Connected: func(clientInfo transporter.ServerClientInfo) {
+					clientLog.Debugf("Connected")
+				},
+				Disconnected: func(
+					clientInfo transporter.ServerClientInfo, err error) {
+					if err != nil {
+						clientLog.Debugf("Disconnected: ", err)
+
+						return
+					}
+
+					clientLog.Debugf("Disconnected")
+				},
+				Error: func(er error) error {
+					if er == nil {
+						return nil
+					}
+
+					switch e := er.(type) {
+					case transporter.Error:
+						// If it's a Transporter error
+						switch tspErr := e.Raw().(type) {
+						case codec.Error:
+							clientLog.Warningf("Decode error: %s", tspErr)
+						}
+
+					default:
+						clientLog.Debugf("General error: %s", er)
+					}
+
+					return nil
+				},
+			}
+		}, acceptInfo)
 }

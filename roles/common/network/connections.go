@@ -23,26 +23,16 @@ package network
 import (
 	"errors"
 	"net"
+	"sync"
 )
 
 // Connections is a connection map container
 type Connections interface {
-	Serve()
-	Close()
 	Get(name string) (net.Conn, error)
 	Put(name string, conn net.Conn) error
 	Del(name string) (net.Conn, error)
 	Iterate(iter func(name string, conn net.Conn))
 }
-
-type connectionsActionType byte
-
-const (
-	connectionActionGet  connectionsActionType = 0x01
-	connectionActionPut  connectionsActionType = 0x02
-	connectionActionDel  connectionsActionType = 0x03
-	connectionActionIter connectionsActionType = 0x04
-)
 
 // Connections errors
 var (
@@ -53,171 +43,71 @@ var (
 		"Connection already existed")
 )
 
-type connectionsAction struct {
-	Type   connectionsActionType
-	Name   string
-	Conn   net.Conn
-	Func   func(string, net.Conn)
-	Result chan connectionsActionResult
-}
-
-type connectionsActionResult struct {
-	Conn net.Conn
-	Err  error
-}
-
 type connections struct {
 	connMap map[string]net.Conn
-	reqChan chan connectionsAction
+	lock    sync.RWMutex
 }
 
 // NewConnections creates a new Connections
-func NewConnections() Connections {
+func NewConnections(size uint) Connections {
 	return &connections{
-		connMap: make(map[string]net.Conn, 256),
-		reqChan: make(chan connectionsAction),
+		connMap: make(map[string]net.Conn, size),
+		lock:    sync.RWMutex{},
 	}
-}
-
-// Serve start handle Connections request
-func (c *connections) Serve() {
-	for {
-		action, reqOK := <-c.reqChan
-
-		if !reqOK {
-			return
-		}
-
-		switch action.Type {
-		case connectionActionGet:
-			conn, found := c.connMap[action.Name]
-
-			if !found {
-				action.Result <- connectionsActionResult{
-					Conn: nil,
-					Err:  ErrConnectionsConnectionNotFound,
-				}
-			} else {
-				action.Result <- connectionsActionResult{
-					Conn: conn,
-					Err:  nil,
-				}
-			}
-
-		case connectionActionPut:
-			_, found := c.connMap[action.Name]
-
-			if found {
-				action.Result <- connectionsActionResult{
-					Conn: nil,
-					Err:  ErrConnectionsConnectionAlreadyExisted,
-				}
-			} else {
-				c.connMap[action.Name] = action.Conn
-
-				action.Result <- connectionsActionResult{
-					Conn: action.Conn,
-					Err:  nil,
-				}
-			}
-
-		case connectionActionDel:
-			conn, found := c.connMap[action.Name]
-
-			if !found {
-				action.Result <- connectionsActionResult{
-					Conn: nil,
-					Err:  ErrConnectionsConnectionNotFound,
-				}
-			} else {
-				delete(c.connMap, action.Name)
-
-				action.Result <- connectionsActionResult{
-					Conn: conn,
-					Err:  nil,
-				}
-			}
-
-		case connectionActionIter:
-			for key, conn := range c.connMap {
-				action.Func(key, conn)
-			}
-
-			action.Result <- connectionsActionResult{
-				Conn: nil,
-				Err:  nil,
-			}
-		}
-	}
-}
-
-// Close destory current Connections container
-func (c *connections) Close() {
-	close(c.reqChan)
 }
 
 // Get gets a conn item from container
 func (c *connections) Get(name string) (net.Conn, error) {
-	action := connectionsAction{
-		Type:   connectionActionGet,
-		Name:   name,
-		Conn:   nil,
-		Func:   nil,
-		Result: make(chan connectionsActionResult),
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	conn, found := c.connMap[name]
+
+	if !found {
+		return nil, ErrConnectionsConnectionNotFound
 	}
 
-	c.reqChan <- action
-
-	result := <-action.Result
-
-	return result.Conn, result.Err
+	return conn, nil
 }
 
 // Put puts a conn item to container
 func (c *connections) Put(name string, conn net.Conn) error {
-	action := connectionsAction{
-		Type:   connectionActionPut,
-		Name:   name,
-		Conn:   conn,
-		Func:   nil,
-		Result: make(chan connectionsActionResult),
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	_, found := c.connMap[name]
+
+	if found {
+		return ErrConnectionsConnectionAlreadyExisted
 	}
 
-	c.reqChan <- action
+	c.connMap[name] = conn
 
-	result := <-action.Result
-
-	return result.Err
+	return nil
 }
 
 // Del deletes a conn item from container
 func (c *connections) Del(name string) (net.Conn, error) {
-	action := connectionsAction{
-		Type:   connectionActionDel,
-		Name:   name,
-		Conn:   nil,
-		Func:   nil,
-		Result: make(chan connectionsActionResult),
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	conn, found := c.connMap[name]
+
+	if !found {
+		return nil, ErrConnectionsConnectionNotFound
 	}
 
-	c.reqChan <- action
+	delete(c.connMap, name)
 
-	result := <-action.Result
-
-	return result.Conn, result.Err
+	return conn, nil
 }
 
 // Iterate loop through all conn items in the container
 func (c *connections) Iterate(iter func(name string, conn net.Conn)) {
-	action := connectionsAction{
-		Type:   connectionActionIter,
-		Name:   "",
-		Conn:   nil,
-		Func:   iter,
-		Result: make(chan connectionsActionResult),
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	for k, v := range c.connMap {
+		iter(k, v)
 	}
-
-	c.reqChan <- action
-
-	<-action.Result
 }

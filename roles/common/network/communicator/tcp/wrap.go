@@ -18,25 +18,24 @@
 //  along with Crypto-Obscured Forwarder. If not, see
 //  <http://www.gnu.org/licenses/>.
 
-package wrapper
+package tcp
 
 import (
 	"net"
+	"time"
 
-	"github.com/nickrio/coward/roles/common/network/transporter/common"
+	"github.com/nickrio/coward/roles/common/network/communicator/common"
+	"github.com/nickrio/coward/roles/common/network/conn"
 )
 
-// Plain returns a Clear-Text Data wrapper
-func Plain() Wrapper {
-	return Wrapper{
-		Name:    "plain",
-		Wrapper: PlainWrapper,
-	}
-}
-
-// PlainWrapper will send data as is, without encode in anyway
-func PlainWrapper(key []byte) common.ConnWrapper {
-	return func(raw net.Conn) (net.Conn, error) {
-		return raw, nil
-	}
+func wrapConn(
+	newConn net.Conn,
+	wrapper common.ConnWrapper,
+	disrupter common.ConnDisrupter,
+	timeout time.Duration,
+) (net.Conn, error) {
+	return wrapper(disrupter(conn.WrapClientConn(newConn, conn.ClientConfig{
+		Timeout: timeout,
+		OnClose: func() {},
+	})))
 }

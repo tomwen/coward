@@ -21,32 +21,31 @@
 package conn
 
 import (
-	"errors"
 	"net"
 	"syscall"
 )
 
 // Connection errors
 var (
-	ErrTimeout = errors.New(
+	ErrTimeout = newErrorConnError(
 		"Connection timed out")
 
-	ErrReadTimeout = errors.New(
+	ErrReadTimeout = newErrorConnError(
 		"Connection read timed out")
 
-	ErrWriteTimeout = errors.New(
+	ErrWriteTimeout = newErrorConnError(
 		"Connection write timed out")
 
-	ErrUnconnectable = errors.New(
+	ErrUnconnectable = newErrorConnError(
 		"Unable to connect to the host")
 
-	ErrRefused = errors.New(
+	ErrRefused = newErrorConnError(
 		"Connection refused")
 
-	ErrResetted = errors.New(
+	ErrResetted = newErrorConnError(
 		"Connection resetted")
 
-	ErrAborted = errors.New(
+	ErrAborted = newErrorConnError(
 		"Connection aborted")
 )
 
@@ -61,6 +60,31 @@ const (
 
 type errorConn struct {
 	net.Conn
+}
+
+// ErrorConnError is errors for ErrorConn
+type ErrorConnError interface {
+	error
+
+	IsErrorConnError() bool
+}
+
+type errorConnError struct {
+	message string
+}
+
+func (e *errorConnError) Error() string {
+	return e.message
+}
+
+func (e *errorConnError) IsErrorConnError() bool {
+	return true
+}
+
+func newErrorConnError(message string) ErrorConnError {
+	return &errorConnError{
+		message: message,
+	}
 }
 
 // NewError creates a new error CONN

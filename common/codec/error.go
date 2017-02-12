@@ -20,19 +20,31 @@
 
 package codec
 
-// Failure is codec error
-type Failure struct {
+// Error is codec error
+type Error interface {
+	error
+
+	IsCodecError() bool
+}
+
+// failure implements Error
+type failure struct {
 	message string
 }
 
 // Fail creates an codec failure
-func Fail(message string) *Failure {
-	return &Failure{
+func Fail(message string) Error {
+	return &failure{
 		message: message,
 	}
 }
 
 // Error returns the error message
-func (f *Failure) Error() string {
+func (f *failure) Error() string {
 	return f.message
+}
+
+// IsCodecError is the Interface Characteristic for Codec Errors
+func (f *failure) IsCodecError() bool {
+	return true
 }

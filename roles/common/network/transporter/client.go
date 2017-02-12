@@ -21,30 +21,30 @@
 package transporter
 
 import (
-	"net"
-	"strconv"
+	"errors"
 	"sync"
 	"time"
 
 	ccommon "github.com/nickrio/coward/common"
-	"github.com/nickrio/coward/roles/common/network/transporter/common"
-	"github.com/nickrio/coward/roles/common/network/transporter/connection"
+	"github.com/nickrio/coward/common/locked"
 )
 
+// Transporter client general errors
 var (
-	// ErrClientConnectionWaitTimeout is throwed when client connection
-	// request is timed out
-	ErrClientConnectionWaitTimeout = common.Error(
-		"Connection request is timed out")
+	ErrClientConnectionWaitTimeout = errors.New(
+		"Transporter Connection waiting is timed out")
 
-	// ErrClientConnectionRequestCanncelled is throwed when client has
-	// cancelled the connection request
-	ErrClientConnectionRequestCanncelled = common.Error(
-		"Connection request has been canncelled")
+	ErrClientConnectionRequestCanncelled = errors.New(
+		"Transporter Connection request has been canncelled")
 
-	// ErrClientDisabled is throwed when current Client is disabled
-	ErrClientDisabled = common.Error(
+	ErrClientDisabled = errors.New(
 		"Transporter Client is disabled")
+)
+
+// Transporter client status
+var (
+	ErrClientInitialConnectionFailed = NewError(
+		"Transporter Client failed to establish initial connection with server")
 )
 
 // Client is the Transporter Client
@@ -55,61 +55,41 @@ type Client interface {
 
 // client implements Client
 type client struct {
-	base
-
-	addr            common.Address
-	addrString      string
-	disabled        bool
-	disabledLock    sync.RWMutex
-	connectRetry    uint8
-	connectTimeout  time.Duration
-	clients         []connection.Client
-	idleConnChan    chan connection.Client
-	liveConnChan    chan connection.Client
+	retry           uint8
+	waitTimeout     time.Duration
+	disabled        locked.Boolean
+	reuseConn       bool
+	clients         []ClientConn
+	idleConnChan    chan ClientConn
+	liveConnChan    chan ClientConn
 	waitingRequests ccommon.Counter
-	averageLoad     ccommon.Averager
+	avgConnSelDelay ccommon.Averager
 	requestWait     sync.WaitGroup
 }
 
-// NewClient creates a new Transporter Client
+// NewClient creates a new Transporter client
 func NewClient(
-	host string,
-	port uint16,
-	idleTimeout time.Duration,
-	connectionPersistent bool,
-	maxConcurrence uint16,
-	connectRetry uint8,
-	connectTimeout time.Duration,
-	wrapper common.ConnWrapper,
-	disrupter common.ConnDisrupter,
+	clientBuilder ClientConnBuilder,
+	waitTimeout time.Duration,
+	concurrence uint16,
+	retry uint8,
+	reuseConn bool,
 ) Client {
 	c := &client{
-		base: base{
-			wrapper:              wrapper,
-			disrupter:            disrupter,
-			connectionPersistent: connectionPersistent,
-			idleTimeout:          idleTimeout,
-		},
-		addr: common.NewAddress(host, port),
-		addrString: net.JoinHostPort(host, strconv.FormatUint(
-			uint64(port), 10)),
-		disabled:        false,
-		disabledLock:    sync.RWMutex{},
-		connectRetry:    connectRetry,
-		connectTimeout:  connectTimeout,
-		clients:         make([]connection.Client, maxConcurrence),
-		idleConnChan:    make(chan connection.Client, maxConcurrence),
-		liveConnChan:    make(chan connection.Client, maxConcurrence),
+		retry:           retry,
+		waitTimeout:     waitTimeout,
+		disabled:        locked.NewBool(false),
+		reuseConn:       reuseConn,
+		clients:         make([]ClientConn, concurrence),
+		idleConnChan:    make(chan ClientConn, concurrence),
+		liveConnChan:    make(chan ClientConn, concurrence),
 		waitingRequests: ccommon.NewCounter(0),
-		averageLoad:     ccommon.NewLockedAverager(int(maxConcurrence) * 3),
+		avgConnSelDelay: ccommon.NewLockedAverager(int(concurrence)),
 		requestWait:     sync.WaitGroup{},
 	}
 
 	for clientID := range c.clients {
-		c.clients[clientID] = connection.NewClientConn(
-			c.idleTimeout,
-			c.connectTimeout,
-		)
+		c.clients[clientID] = clientBuilder()
 
 		c.idleConnChan <- c.clients[clientID]
 	}
@@ -117,33 +97,17 @@ func NewClient(
 	return c
 }
 
-// setDisable will set the disable status of current client
-func (c *client) setDisable(s bool) {
-	c.disabledLock.Lock()
-	defer c.disabledLock.Unlock()
-
-	c.disabled = s
-}
-
-// getDisable will get the disable status of current client
-func (c *client) getDisable() bool {
-	c.disabledLock.RLock()
-	defer c.disabledLock.RUnlock()
-
-	return c.disabled
-}
-
 // getConnection gets a free connection from connection pool
 func (c *client) getConnection(
 	canceller Signal,
-	delay func(string, float64, uint64),
-) (connection.Client, error) {
-	var conn connection.Client
+	delay func(float64, uint64),
+) (ClientConn, error) {
+	var conn ClientConn
 	var cErr error
 
 	// Create a new ticker, and don't use time.Tick because
 	// it can cause ticker leak
-	ticker := time.NewTicker(c.connectTimeout)
+	ticker := time.NewTicker(c.waitTimeout * time.Duration(c.retry))
 	defer ticker.Stop()
 
 	connectStart := time.Now()
@@ -152,7 +116,7 @@ func (c *client) getConnection(
 
 	defer func() {
 		// If connection is failed, then we only update
-		// waitingRequests but not averageLoad
+		// waitingRequests but not avgConnSelDelay
 		waiting := c.waitingRequests.Remove(1)
 
 		if cErr != nil {
@@ -160,22 +124,30 @@ func (c *client) getConnection(
 		}
 
 		costedTime := time.Now().Sub(connectStart).Seconds()
-		avgDelay := c.averageLoad.AddWithWeight(
+		avgDelay := c.avgConnSelDelay.AddWithWeight(
 			costedTime,
 			func(currentAvg float64, size int) int {
+				weight := 1
+
 				// Make averager flavers better delay
 				if currentAvg > costedTime {
-					return size / 3
+					weight = size / 5
 				}
 
-				return 1
+				if weight < 1 {
+					weight = 1
+				}
+
+				return weight
 			})
 
 		if delay == nil {
 			return
 		}
 
-		delay(c.addrString, avgDelay, waiting)
+		// Feedback connection select delay information with
+		// a nice callback
+		delay(avgDelay, waiting)
 	}()
 
 	select {
@@ -202,12 +174,23 @@ func (c *client) getConnection(
 		return conn, nil
 	}
 
-	for retry := uint8(0); retry < c.connectRetry; retry++ {
-		cErr = conn.Connect(c.addr, c.wrapper, c.disrupter)
+	// Try at least once
+	retry := c.retry
+
+	for {
+		cErr = conn.Dial()
 
 		if cErr == nil {
 			break
 		}
+
+		if retry > 1 {
+			retry--
+
+			continue
+		}
+
+		break
 	}
 
 	if cErr != nil {
@@ -219,192 +202,127 @@ func (c *client) getConnection(
 	return conn, nil
 }
 
-// Request connects the target server and perform query
-func (c *client) Request(
+// request fetchs a available connection, and send request with it
+// returns NeedsRetry bool, error error
+func (c *client) request(
 	builder HandlerBuilder,
-	option RequestOption,
+	opt RequestOption,
 ) (bool, error) {
-	c.requestWait.Add(1)
+	var handler Handler
 
-	defer c.requestWait.Done()
+	forceDisconnect := false
 
-	var err error
+	conn, connErr := c.getConnection(opt.Canceller, opt.Delay)
 
-	// Requested indicates if the Request method
-	// did send the request to server
-	requested := true
-	firstTry := true
-
-	for re := uint8(0); re < c.connectRetry; re++ {
-		doRetry := false
-
-		requested = true
-
-		err = func() error {
-			if c.getDisable() {
-				return ErrClientDisabled
-			}
-
-			canForceResetTspConn := true
-			conn, connErr := c.getConnection(option.Canceller, option.Delay)
-
-			if connErr != nil {
-				requested = false
-
-				return connErr
-			}
-
-			if firstTry {
-				re--
-			}
-
-			handler := builder(HandlerConfig{
-				Server: conn,
-				Buffer: option.Buffer,
-			})
-
-			defer func() {
-				handler.Close()
-
-				// Close connection AFTER handler closed
-				if !c.connectionPersistent {
-					c.waitingRequests.Load(func(waitingRequest uint64) {
-						if waitingRequest > 0 {
-							return
-						}
-
-						conn.Close()
-					})
-				}
-
-				if conn.Connected() {
-					c.liveConnChan <- conn
-				} else {
-					c.idleConnChan <- conn
-				}
-			}()
-
-			handlerErr := handler.Handle()
-
-			// If the error is those we care, return those errors
-			//
-			// Here is some notice on Trying function:
-			// It is important to known that we implement handle
-			// request Retry by re-running the failed handler.
-			// It will lead to some severe problem IF HANDLED
-			// INCORRECTLY.
-			//
-			// The rule is simple though:
-			//   We only retry when we 100% sure that user's
-			//   request hasn't generated any side effect.
-			//
-			// For example:
-			//   We can retry when:
-			//     - User failed to connect to server
-			//     - User is using a closed connection
-			//   We can't retry when:
-			//     - Timeout:   user's request may already been
-			//                  proccessed by server
-			//     - EOF:       User's request may already finished
-			//
-			switch handlerErr {
-			case nil:
-				return nil
-
-			case connection.ErrUnconnectable:
-				fallthrough
-			case connection.ErrBroken:
-				fallthrough
-			case connection.ErrNotEstablished:
-				doRetry = true
-				requested = false
-
-				return handlerErr
-
-			case connection.ErrReadTimeout:
-				fallthrough
-			case connection.ErrWriteTimeout:
-				fallthrough
-			case connection.ErrTimeout:
-				// Notice here as we treat Timeout error as something
-				// serious. The reason behind it is:
-				// When a transporter connection is timed out, the
-				// progress of that handler may be disrupted. And the
-				// server connection which responding to that handler
-				// may not be reset and still expecting handler's
-				// next command. This will destroy the sync status
-				// between server and client.
-				//
-				// So, to reduce the chance of that problem, we must
-				// reset current transporter connection so server will
-				// release the session and it's sync status.
-				//
-				// Why we check this error here instead of letting
-				// handler tell us what to do is because another rules
-				// states that the Transporter will handle it's own error.
-				// Handler had it's own errors to take care of.
-				conn.Close()
-
-				canForceResetTspConn = false
-
-				// Also notice here:
-				// Even through the Transporter connection will be closed
-				// when ErrTimeout happened, the handler can still ask a
-				// replay for the request.
-				// This is because we don't actually know whether or not
-				// to retry for the timeouted request, only hander knows
-				// that.
-				// If the timeout is happened during Relay stage, target
-				// server and source client may already exchanged some
-				// data. In this case, retry is dangerous.
-				// Otherwise, if the target server and source client hasn't
-				// exchanged any data, then it's perfectly safe for us
-				// to retry the request when it failed.
-				fallthrough
-
-			default:
-				wantToRetry, wantToResetTspConn, handledErr := handler.Error(
-					handlerErr)
-
-				if handledErr == nil {
-					return nil
-				}
-
-				retry, resetTspConn, reqErr := option.Error(
-					wantToRetry, wantToResetTspConn, handledErr)
-
-				if reqErr == nil {
-					return nil
-				}
-
-				if retry {
-					doRetry = true
-				}
-
-				if resetTspConn && canForceResetTspConn {
-					conn.Close()
-				}
-
-				requested = false
-
-				return reqErr
-			}
-		}()
-
-		firstTry = false
-
-		if !doRetry {
-			break
-		}
+	if connErr != nil {
+		return false, UnderError(ErrClientInitialConnectionFailed, connErr)
 	}
 
-	return requested, err
+	defer func() {
+		// Making sure connections are closed AFTER Request Handler
+		// closed
+		if handler != nil {
+			handler.Close()
+		}
+
+		if forceDisconnect {
+			conn.Close()
+		} else if !c.reuseConn {
+			c.waitingRequests.Load(func(waitingRequest uint64) {
+				if waitingRequest > 0 {
+					return
+				}
+
+				conn.Close()
+			})
+		}
+
+		if conn.Connected() {
+			c.liveConnChan <- conn
+		} else {
+			c.idleConnChan <- conn
+		}
+	}()
+
+	handler = builder(HandlerConfig{
+		Server: &wrapped{ReadWriteCloser: conn},
+		Buffer: opt.Buffer,
+	})
+
+	handlerErr := handler.Handle()
+
+	// Rule:
+	//
+	// 1, If it's a transporter error, then the transporter connection
+	//    must be reset (Disconnected)
+	// 2, Whether or not to retry is depends on handler.Error and
+	//    opt.Error
+	//
+	_, isTSPErr := handlerErr.(Error)
+
+	if isTSPErr {
+		forceDisconnect = true
+	}
+
+	wantToRetry, wantToResetTspConn, handledErr := handler.Error(handlerErr)
+
+	if wantToResetTspConn {
+		forceDisconnect = true
+	}
+
+	if handledErr == nil {
+		return false, nil
+	}
+
+	retry, resetTspConn, reqErr := opt.Error(
+		wantToRetry, wantToResetTspConn, handledErr)
+
+	if resetTspConn {
+		forceDisconnect = true
+	}
+
+	if reqErr == nil {
+		return false, nil
+	}
+
+	return retry, reqErr
+}
+
+// Request connects the target server and perform query
+func (c *client) Request(
+	builder HandlerBuilder, option RequestOption) (bool, error) {
+	var err error
+
+	if c.disabled.Get() {
+		return false, ErrClientDisabled
+	}
+
+	c.requestWait.Add(1)
+	defer c.requestWait.Done()
+
+	retry := c.retry
+	needRetry := false
+
+	for {
+		needRetry, err = c.request(builder, option)
+
+		if needRetry && retry > 1 {
+			retry--
+
+			continue
+		}
+
+		break
+	}
+
+	// Treat !needRetry (No need to retry) as requested
+	return !needRetry, err
 }
 
 // Kickoff disconnect active clients from server
 func (c *client) Kickoff() {
-	c.setDisable(true)
-	defer c.setDisable(false)
+	c.disabled.Set(true)
+	defer c.disabled.Set(false)
 
 	breakLoop := false
 
@@ -412,11 +330,7 @@ func (c *client) Kickoff() {
 		client.Close()
 	}
 
-	for {
-		if breakLoop {
-			break
-		}
-
+	for !breakLoop {
 		select {
 		case conn := <-c.liveConnChan:
 			c.idleConnChan <- conn

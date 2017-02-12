@@ -18,26 +18,32 @@
 //  along with Crypto-Obscured Forwarder. If not, see
 //  <http://www.gnu.org/licenses/>.
 
-package wrapper
+package tcp
 
-import (
-	"net"
+import "net"
 
-	"github.com/nickrio/coward/roles/common/network/conn"
-	"github.com/nickrio/coward/roles/common/network/transporter/common"
-)
+// serverConn is wrapped conn for current TCP communicator
+type serverConn struct {
+	net.Conn
 
-// Chaotic returns a data Disrupter wrapper
-func Chaotic() Disrupter {
-	return Disrupter{
-		Name:      "chaotic",
-		Disrupter: ChaoticWrapper,
-	}
+	RemoteAddress string
+	OnClose       func(string)
 }
 
-// ChaoticWrapper will randomly spilt data for sending
-func ChaoticWrapper(setting []byte) common.ConnDisrupter {
-	return func(raw net.Conn) net.Conn {
-		return conn.NewChaotic(raw)
+// Name returns the name or ID of current connection
+func (s *serverConn) Name() string {
+	return s.RemoteAddress
+}
+
+// Close shuts down current connection
+func (s *serverConn) Close() error {
+	cErr := s.Conn.Close()
+
+	if cErr != nil {
+		return cErr
 	}
+
+	s.OnClose(s.RemoteAddress)
+
+	return nil
 }

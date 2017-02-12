@@ -21,7 +21,6 @@
 package proxy
 
 import (
-	"net"
 	"time"
 
 	"github.com/nickrio/coward/common/logger"
@@ -30,8 +29,6 @@ import (
 
 // Config is the server configuation
 type Config struct {
-	Interface      net.IP
-	Port           uint16
 	Channels       common.Channels
 	Logger         logger.Logger
 	ConnectTimeout time.Duration

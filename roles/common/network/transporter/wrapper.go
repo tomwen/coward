@@ -18,74 +18,48 @@
 //  along with Crypto-Obscured Forwarder. If not, see
 //  <http://www.gnu.org/licenses/>.
 
-package conn
+package transporter
 
-import (
-	"io"
-	"net"
-)
+import "io"
 
-type eof struct {
-	net.Conn
-
-	eof bool
+// wrapped will wraps given common.ReadWriteCloser, and force them
+// to return Transporter error
+type wrapped struct {
+	io.ReadWriteCloser
 }
 
-// NewEOF creates a new EOF CONN
-func NewEOF(c net.Conn) net.Conn {
-	return &eof{
-		Conn: c,
-		eof:  false,
-	}
-}
-
-// Read read from CONN
-func (e *eof) Read(p []byte) (int, error) {
-	if e.eof {
-		return 0, io.EOF
-	}
-
-	rLen, rErr := e.Conn.Read(p)
+// Read reads data from ReadWriteCloser and convert returned error
+// to Transporter error
+func (w *wrapped) Read(b []byte) (int, error) {
+	rLen, rErr := w.ReadWriteCloser.Read(b)
 
 	if rErr == nil {
-		return rLen, rErr
+		return rLen, nil
 	}
 
-	if rErr == io.EOF {
-		e.eof = true
-	}
-
-	return rLen, rErr
+	return rLen, WrapError(rErr)
 }
 
-// Write writes from CONN
-func (e *eof) Write(p []byte) (int, error) {
-	if e.eof {
-		return 0, io.EOF
+// Write write data to ReadWriteCloser and convert returned error
+// to Transporter error
+func (w *wrapped) Write(b []byte) (int, error) {
+	rLen, rErr := w.ReadWriteCloser.Write(b)
+
+	if rErr == nil {
+		return rLen, nil
 	}
 
-	wLen, wErr := e.Conn.Write(p)
-
-	if wErr == nil {
-		return wLen, wErr
-	}
-
-	if wErr == io.EOF {
-		e.eof = true
-	}
-
-	return wLen, wErr
+	return rLen, WrapError(rErr)
 }
 
-// Close closes the CONN
-func (e *eof) Close() error {
-	closeErr := e.Conn.Close()
+// Close closes ReadWriteCloser and convert returned error to
+// Transporter error
+func (w *wrapped) Close() error {
+	rErr := w.ReadWriteCloser.Close()
 
-	if closeErr != nil {
-		return closeErr
+	if rErr == nil {
+		return nil
 	}
 
-	e.eof = true
-
-	return nil
+	return WrapError(rErr)
 }

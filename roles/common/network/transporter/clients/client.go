@@ -240,10 +240,10 @@ func (c *client) Request(
 	requested, reqErr := c.client.Request(builder, transporter.RequestOption{
 		Buffer:    option.Buffer,
 		Canceller: option.Canceller,
-		Delay: func(addr string, connectDelay float64, waiting uint64) {
+		Delay: func(connectDelay float64, waiting uint64) {
 			c.update(connectDelay, waiting)
 
-			option.Delay(addr, connectDelay, waiting)
+			option.Delay(connectDelay, waiting)
 		},
 		Error: option.Error,
 	})

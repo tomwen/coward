@@ -21,7 +21,7 @@
 package transporter
 
 import (
-	"net"
+	"io"
 
 	"github.com/nickrio/coward/roles/common/network/buffer"
 )
@@ -30,13 +30,12 @@ import (
 type Handler interface {
 	Handle() error
 	Close() error
-	Unleash() error
 	Error(e error) (wantToRetry bool, wantResetTransportConn bool, err error)
 }
 
 // HandlerConfig is the configuration of a handler
 type HandlerConfig struct {
-	Server net.Conn
+	Server io.ReadWriter
 	Buffer buffer.Slice
 }
 

@@ -136,24 +136,13 @@ func (t *tcp) handlePartnerStream() error {
 
 			return ErrTerminalConnectionClosed
 		}).
-		Register(messaging.Unleash, func(
-			b []byte,
-			rw io.ReadWriter,
-			size uint16,
-		) error {
-			if size <= 0 {
-				return ErrPartnerConnectionUnleashed
-			}
-
-			io.ReadFull(rw, b[:size])
-
-			return ErrPartnerConnectionUnleashed
-		}).
 		Register(messaging.EOF, func(
 			b []byte,
 			rw io.ReadWriter,
 			size uint16,
 		) error {
+			closing = true
+
 			if size <= 0 {
 				return ErrPartnerCurrentSessionCompleted
 			}
@@ -211,11 +200,9 @@ func (t *tcp) Relay() error {
 		switch p2dErr {
 		case ErrPartnerCurrentSessionCompleted:
 			// Do nothing
-		case ErrPartnerConnectionUnleashed:
+
+		case ErrTerminalConnectionClosed:
 			t.Write(t.partner, messaging.EOF, nil,
-				t.buffer.Server.ExtendedBuffer)
-		default:
-			t.Write(t.partner, messaging.Unleash, nil,
 				t.buffer.Server.ExtendedBuffer)
 		}
 
@@ -230,7 +217,7 @@ func (t *tcp) Relay() error {
 		<-parter2terminalErrorChan
 
 	case <-t.closeChan:
-		t.Write(t.partner, messaging.Unleash, nil,
+		t.Write(t.partner, messaging.Closed, nil,
 			tmpBuf[:])
 
 		<-parter2terminalErrorChan

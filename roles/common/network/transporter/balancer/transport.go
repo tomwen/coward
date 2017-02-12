@@ -121,7 +121,7 @@ func (t *transport) Request(
 		}, transporter.RequestOption{
 			Buffer:    option.Buffer,
 			Canceller: option.Canceller,
-			Delay: func(addr string, connectDelay float64, waiting uint64) {
+			Delay: func(connectDelay float64, waiting uint64) {
 				newWeight =
 					connectDelay + (connectDelay * float64(waiting))
 
@@ -129,7 +129,7 @@ func (t *transport) Request(
 					t.reweight(newWeight + newDelay)
 				}
 
-				option.Delay(addr, connectDelay, waiting)
+				option.Delay(connectDelay, waiting)
 			},
 			Error: option.Error,
 		})

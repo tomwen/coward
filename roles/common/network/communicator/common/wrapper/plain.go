@@ -1,6 +1,6 @@
 //  Crypto-Obscured Forwarder
 //
-//  Copyright (C) 2017 Rany Lee <nickrio@gmail.com>
+//  Copyright (C) 2017 NI Rui <nickriose@gmail.com>
 //
 //  This file is part of Crypto-Obscured Forwarder.
 //
@@ -18,19 +18,25 @@
 //  along with Crypto-Obscured Forwarder. If not, see
 //  <http://www.gnu.org/licenses/>.
 
-package transporter
+package wrapper
 
 import (
-	"time"
+	"net"
 
-	"github.com/nickrio/coward/roles/common/network/transporter/common"
+	"github.com/nickrio/coward/roles/common/network/communicator/common"
 )
 
-// base is common things will be used by both receiver
-// and transmitter
-type base struct {
-	wrapper              common.ConnWrapper
-	disrupter            common.ConnDisrupter
-	connectionPersistent bool
-	idleTimeout          time.Duration
+// Plain returns a Clear-Text Data wrapper
+func Plain() Wrapper {
+	return Wrapper{
+		Name:    "plain",
+		Wrapper: PlainWrapper,
+	}
+}
+
+// PlainWrapper will send data as is, without encode in anyway
+func PlainWrapper(key []byte) common.ConnWrapper {
+	return func(raw net.Conn) (net.Conn, error) {
+		return raw, nil
+	}
 }

@@ -18,25 +18,18 @@
 //  along with Crypto-Obscured Forwarder. If not, see
 //  <http://www.gnu.org/licenses/>.
 
-package common
+package wrapper
 
-import "testing"
+import "github.com/nickrio/coward/roles/common/network/communicator/common"
 
-func TestAddressGet(t *testing.T) {
-	a := NewAddress("localhost", 65535)
+// Disrupter is the Disrupter wrapper
+type Disrupter struct {
+	Name      string
+	Disrupter func([]byte) common.ConnDisrupter
+}
 
-	addr, addrErr := a.Get()
-
-	if addrErr != nil {
-		t.Error("Failed to get Address due to error:", addrErr)
-
-		return
-	}
-
-	if addr != "127.0.0.1:65535" && addr != "[::1]:65535" {
-		t.Error("Failed to resolve address to expected address. "+
-			"Expecting %s, got %s", "127.0.0.1:65535 or [::1]:65535", addr)
-
-		return
-	}
+// Wrapper is the Data Wrapper wrapper
+type Wrapper struct {
+	Name    string
+	Wrapper func([]byte) common.ConnWrapper
 }

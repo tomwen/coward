@@ -20,16 +20,24 @@
 
 package wrapper
 
-import "github.com/nickrio/coward/roles/common/network/transporter/common"
+import (
+	"net"
 
-// Disrupter is the Disrupter wrapper
-type Disrupter struct {
-	Name      string
-	Disrupter func([]byte) common.ConnDisrupter
+	"github.com/nickrio/coward/roles/common/network/communicator/common"
+	"github.com/nickrio/coward/roles/common/network/conn"
+)
+
+// Chaotic returns a data Disrupter wrapper
+func Chaotic() Disrupter {
+	return Disrupter{
+		Name:      "chaotic",
+		Disrupter: ChaoticWrapper,
+	}
 }
 
-// Wrapper is the Data Wrapper wrapper
-type Wrapper struct {
-	Name    string
-	Wrapper func([]byte) common.ConnWrapper
+// ChaoticWrapper will randomly spilt data for sending
+func ChaoticWrapper(setting []byte) common.ConnDisrupter {
+	return func(raw net.Conn) net.Conn {
+		return conn.NewChaotic(raw)
+	}
 }

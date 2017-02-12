@@ -32,7 +32,7 @@ var (
 	// ErrUnsupportedAddressType is throwed when address type
 	// is unsupported
 	ErrUnsupportedAddressType = errors.New(
-		"Unsupported address type")
+		"Unsupported Socks5 address type")
 )
 
 // ATYPEs

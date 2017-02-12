@@ -24,10 +24,10 @@ import (
 	"net"
 	"time"
 
-	"github.com/nickrio/coward/common/streamer/aes_cfb"
+	"github.com/nickrio/coward/common/streamer/aescfb"
 	"github.com/nickrio/coward/roles/common/network"
+	"github.com/nickrio/coward/roles/common/network/communicator/common"
 	"github.com/nickrio/coward/roles/common/network/conn"
-	"github.com/nickrio/coward/roles/common/network/transporter/common"
 )
 
 // AESCFB128 returns a AES-CFB-128-HMAC Data wrapper
@@ -59,7 +59,7 @@ func AESCFB128Wrapper(key []byte) common.ConnWrapper {
 			return nil, keyErr
 		}
 
-		cipher, cipherErr := aesCFB.New(sharedKey)
+		cipher, cipherErr := aescfb.New(sharedKey)
 
 		if cipherErr != nil {
 			return nil, cipherErr
@@ -82,7 +82,7 @@ func AESCFB256Wrapper(key []byte) common.ConnWrapper {
 			return nil, keyErr
 		}
 
-		cipher, cipherErr := aesCFB.New(sharedKey)
+		cipher, cipherErr := aescfb.New(sharedKey)
 
 		if cipherErr != nil {
 			return nil, cipherErr

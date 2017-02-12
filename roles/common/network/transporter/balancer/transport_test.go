@@ -362,7 +362,7 @@ func TestTransportRequest(t *testing.T) {
 	tsp.Request(
 		dummyDelayFeedingBackRequestBuilderBuilder(3*time.Second),
 		transporter.RequestOption{
-			Delay: func(addr string, connectDelay float64, waiting uint64) {},
+			Delay: func(connectDelay float64, waiting uint64) {},
 		},
 	)
 
@@ -389,7 +389,7 @@ func TestTransportRequest(t *testing.T) {
 	tsp.Request(
 		dummyDelayFeedingBackRequestBuilderBuilder(30*time.Second),
 		transporter.RequestOption{
-			Delay: func(addr string, connectDelay float64, waiting uint64) {},
+			Delay: func(connectDelay float64, waiting uint64) {},
 		},
 	)
 
@@ -439,7 +439,7 @@ func BenchmarkTransportRequest(b *testing.B) {
 		tsp.Request(
 			dummyDelayFeedingBackRequestBuilder,
 			transporter.RequestOption{
-				Delay: func(addr string, connectDelay float64, waiting uint64) {
+				Delay: func(connectDelay float64, waiting uint64) {
 
 				},
 			},

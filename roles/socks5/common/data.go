@@ -39,41 +39,41 @@ var (
 	// ErrFailedToReadHandshakeHead is throwed when server is failed to read
 	// all head bytes (first 2 bytes)
 	ErrFailedToReadHandshakeHead = errors.New(
-		"Failed to read all handshake head bytes")
+		"Failed to read all Socks5 handshake head bytes")
 
 	// ErrNoAuthMethodProvided is throwed when client is provided no auth
 	// methods
 	ErrNoAuthMethodProvided = errors.New(
-		"Client doen't provide auth methods")
+		"Socks5 Client doen't provide auth methods")
 
 	// ErrFailedToReadAllAuthMethods is throwed when server is failed to read
 	// all auth method bytes (first 2 bytes)
 	ErrFailedToReadAllAuthMethods = errors.New(
-		"Failed to read all auth method bytes")
+		"Failed to read all Socks5 auth method bytes")
 
 	// ErrAuthFailed is throwed when
 	ErrAuthFailed = errors.New(
-		"Login authentication has failed")
+		"Socks5 Login authentication has failed")
 
 	// ErrUnsupportedAuthMethod is throwed when auth method is not supported
 	// by server
 	ErrUnsupportedAuthMethod = errors.New(
-		"Unsupported auth method")
+		"Unsupported Socks5 auth method")
 
 	// ErrFailedToReadRequestHead is throwed when server is failed to read
 	// all head bytes (first 2 bytes)
 	ErrFailedToReadRequestHead = errors.New(
-		"Failed to read all request head bytes")
+		"Failed to read all Socks5 request head bytes")
 
 	// ErrFailedToReadAuthBytes is throwed when server is failed to read
 	// all auth request bytes
 	ErrFailedToReadAuthBytes = errors.New(
-		"Failed to read all auth request bytes")
+		"Failed to read all Socks5 auth request bytes")
 
 	// ErrInvalidAuthCredentialProvided is throwed when client is provided
 	// an invalid auth credential
 	ErrInvalidAuthCredentialProvided = errors.New(
-		"Client didn't provide an valid auth methods")
+		"Socks5 Client didn't provide an valid auth methods")
 )
 
 // REP is the REP in Socks 5 server respond

@@ -29,7 +29,7 @@ var (
 	// ErrUnsupportedCommand is throwed when the command is not
 	// supported
 	ErrUnsupportedCommand = errors.New(
-		"Unsupported command")
+		"Unsupported Socks5 command type")
 )
 
 // CTYPE is command type

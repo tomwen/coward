@@ -32,9 +32,10 @@ import (
 	"github.com/nickrio/coward/common/print"
 	"github.com/nickrio/coward/common/role"
 	"github.com/nickrio/coward/roles/common/network"
+	ccomm "github.com/nickrio/coward/roles/common/network/communicator/common"
+	"github.com/nickrio/coward/roles/common/network/communicator/common/wrapper"
+	"github.com/nickrio/coward/roles/common/network/communicator/tcp"
 	"github.com/nickrio/coward/roles/common/network/transporter"
-	tcomm "github.com/nickrio/coward/roles/common/network/transporter/common"
-	"github.com/nickrio/coward/roles/common/network/wrapper"
 )
 
 // ConfigChannel is the bare channel setting input
@@ -94,8 +95,8 @@ type ConfigInput struct {
 	noisersList         []string
 	connPersistentSet   bool
 	ListenIface         net.IP
-	SelectedEncryptAlgo func(key []byte) tcomm.ConnWrapper
-	SelectedNoiser      func(setting []byte) tcomm.ConnDisrupter
+	SelectedEncryptAlgo func(key []byte) ccomm.ConnWrapper
+	SelectedNoiser      func(setting []byte) ccomm.ConnDisrupter
 	Channels            []ConfigChannel `json:"channels" cfg:"ch,-channels:Channels, must be configured according to server setting"`
 	ListenAddr          string          `json:"local_address" cfg:"la,-listen-address:Which interface (Local IP address) this Channel client will serve on"`
 	RemoteHost          string          `json:"remote_host" cfg:"rh,-remote-host:Host name of the backend server"`
@@ -384,16 +385,24 @@ func Role() role.Registration {
 				}
 			}
 
-			return New(transporter.NewClient(
-				cfg.RemoteHost,
-				cfg.RemotePort,
-				time.Duration(cfg.IdleTimeout)*time.Second,
-				cfg.ConnPersistent,
+			transport := transporter.NewClient(
+				tcp.NewClientBuilder(
+					cfg.RemoteHost,
+					cfg.RemotePort,
+					time.Duration(cfg.ConnectTimeout)*time.Second,
+					time.Duration(cfg.IdleTimeout)*time.Second,
+					cfg.SelectedEncryptAlgo(
+						[]byte(cfg.EncryptionKey)),
+					cfg.SelectedNoiser(
+						[]byte(cfg.NoiserData)),
+				),
+				time.Duration(cfg.ConnectTimeout)*time.Second,
 				cfg.ConnConcurrent,
 				cfg.ConnectRetry,
-				time.Duration(cfg.ConnectTimeout)*time.Second,
-				cfg.SelectedEncryptAlgo([]byte(cfg.EncryptionKey)),
-				cfg.SelectedNoiser([]byte(cfg.NoiserData))), Config{
+				cfg.ConnPersistent,
+			)
+
+			return New(transport, Config{
 				DefaultTimeout: time.Duration(cfg.ConnectTimeout) * time.Second,
 				MaxConcurrence: cfg.ConnConcurrent,
 				Interface:      cfg.ListenIface,

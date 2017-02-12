@@ -21,60 +21,57 @@
 package transporter
 
 import (
-	"net"
-	"time"
+	"errors"
+	"sync"
 
-	"github.com/nickrio/coward/roles/common/network/transporter/common"
-	"github.com/nickrio/coward/roles/common/network/transporter/connection"
+	"github.com/nickrio/coward/common/locked"
 )
 
-// Server is what send and parse data
+// Transporter server errors
+var (
+	ErrServerNotActive = errors.New(
+		"Transporter server is not active")
+)
+
+// Server is what receive and handle data request
 type Server interface {
-	Serve(client net.Conn, builder HandlerBuilder, option ServeOption) error
+	Serve(option ServeOptionBuilder, accepter chan ServerConnAccepterMeta) error
+	Close() error
 }
 
 // server implements Server
 type server struct {
-	base
+	listener     ServerConnListener
+	accepter     ServerConnAccepter
+	reuseConn    bool
+	shutdown     locked.Boolean
+	shutdownWait sync.WaitGroup
 }
 
 // NewServer creates a new Transporter Server
-func NewServer(
-	connectionTimeout time.Duration,
-	connectionPersistent bool,
-	wrapper common.ConnWrapper,
-	disrupter common.ConnDisrupter,
-) Server {
+func NewServer(listener ServerConnListener, reuseConn bool) Server {
 	return &server{
-		base: base{
-			wrapper:              wrapper,
-			disrupter:            disrupter,
-			connectionPersistent: connectionPersistent,
-			idleTimeout:          connectionTimeout,
-		},
+		listener:     listener,
+		reuseConn:    reuseConn,
+		shutdown:     locked.NewBool(false),
+		shutdownWait: sync.WaitGroup{},
 	}
 }
 
-// Serve serves the client connection
-func (t *server) Serve(
-	client net.Conn,
-	builder HandlerBuilder,
+// handle handles incoming requests
+func (s *server) handle(
+	clientConn ServerClientConn,
 	option ServeOption,
 ) error {
 	var err error
-	var handerErr error
-	var serverErr error
-	var resetTspConn bool
+	var isTSPErr bool
+	var needBreak bool
+	var needDisconnect bool
 
-	wrappedConn, wrapErr := connection.WrapServerConn(
-		client, t.wrapper, t.disrupter, t.idleTimeout)
+	option.Connected(clientConn)
 
-	if wrapErr != nil {
-		return wrapErr
-	}
-
-	handler := builder(HandlerConfig{
-		Server: wrappedConn,
+	handler := option.Handler(HandlerConfig{
+		Server: &wrapped{ReadWriteCloser: clientConn},
 		Buffer: option.Buffer,
 	})
 
@@ -83,51 +80,120 @@ func (t *server) Serve(
 
 		// Close client connection AFTER handler closed
 		// so we can still do comm in the handler
-		client.Close()
+		clientConn.Close()
+
+		option.Disconnected(clientConn, err)
 	}()
 
 	for {
 		err = handler.Handle()
 
-		if err == nil {
+		// If current error is a Transporter error, meaning
+		// current Transporter connection is not working, thus
+		// needs to be disconnected
+		_, isTSPErr = err.(Error)
+
+		if isTSPErr {
+			needBreak = true
+		}
+
+		// Let handler filter the error, so we can decide whether
+		// or not we will disconnect current connection
+		_, needDisconnect, err = handler.Error(err)
+
+		if err != nil && needDisconnect {
+			needBreak = true
+		}
+
+		// option.Error can cancel break
+		err = option.Error(err)
+
+		if err == nil && !isTSPErr {
+			needBreak = false
+		}
+
+		// Will we break or continue?
+		if !needBreak && s.reuseConn {
 			continue
 		}
 
-		// Quit if it's a transporter error
-		_, isTspErr := err.(*common.Errored)
-
-		if isTspErr {
-			return err
-		}
-
-		if option.Error != nil {
-			// First, server will take look the error
-			// If the error is serious enough, it will return
-			// an error to close the connection
-			serverErr = option.Error(err)
-
-			if serverErr != nil {
-				return serverErr
-			}
-		}
-
-		// If every seems just fine by the server, the handler
-		// will take look it again.
-		// If the error is serious enough for handler, it will
-		// return an error to close the connection
-		// Server will not retry any if the request
-		_, resetTspConn, handerErr = handler.Error(err)
-
-		if handerErr != nil {
-			return handerErr
-		}
-
-		if !t.connectionPersistent {
-			return nil
-		}
-
-		if resetTspConn {
-			return ErrHanderRequestedConnReset
-		}
+		break
 	}
+
+	return err
+}
+
+func (s *server) serve(opt ServeOptionBuilder) error {
+	var accept ServerClientConn
+	var acceptErr error
+
+	for {
+		accept, acceptErr = s.accepter.Accept()
+
+		if acceptErr != nil {
+			if s.shutdown.Get() {
+				break
+			}
+
+			continue
+		}
+
+		s.shutdownWait.Add(1)
+
+		go func(conn ServerClientConn) {
+			defer s.shutdownWait.Done()
+
+			s.handle(conn, opt(conn))
+		}(accept)
+	}
+
+	return acceptErr
+}
+
+// Listen to the listner
+func (s *server) Serve(
+	optionBuilder ServeOptionBuilder,
+	accepter chan ServerConnAccepterMeta,
+) error {
+	var accept ServerConnAccepter
+	var acceptErr error
+
+	s.shutdownWait.Wait()
+
+	accept, acceptErr = s.listener.Listen()
+
+	if acceptErr != nil {
+		// tell we failed
+		accepter <- nil
+
+		return acceptErr
+	}
+
+	// tell we ready
+	accepter <- accept
+
+	s.accepter = accept
+
+	defer func() {
+		s.accepter = nil
+	}()
+
+	return s.serve(optionBuilder)
+}
+
+// Close closes current server is there is any
+func (s *server) Close() error {
+	if s.accepter == nil {
+		return ErrServerNotActive
+	}
+
+	s.shutdown.Set(true)
+
+	closeErr := s.accepter.Close()
+
+	s.shutdownWait.Wait()
+
+	s.accepter = nil
+
+	return closeErr
 }
