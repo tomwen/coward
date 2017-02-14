@@ -30,16 +30,25 @@ import (
 )
 
 // Dialer is a net.Dial wrapper which will cache target IP address
+// The reason for Dialer to exist is for some network, sometimes it's
+// hard to always get in touch with some DNS servers to get a host name
+// resolved.
+// Consider the host IP is usually stay the same, we could keep connecting
+// it using the remote IP address resolved by pervious dialer.
+// + We also implemented a method to renew the resolved IP address when
+// needed: Try to renew the resolved IP every time when a dial has failed.
+// but do not erase the old IP if resolver has failed.
 type Dialer interface {
 	Dial(dialType string, dialTimeout time.Duration) (net.Conn, error)
 }
 
+// dialer implements Dialer
 type dialer struct {
 	defaultHost    string
 	resolvedHostIP net.IP
 	port           uint16
 	tryRenew       locked.Boolean
-	lock           sync.Mutex
+	lock           sync.RWMutex
 }
 
 // NewDialer creates a new Dialer
@@ -49,8 +58,37 @@ func NewDialer(defaultHost string, port uint16) Dialer {
 		resolvedHostIP: nil,
 		port:           port,
 		tryRenew:       locked.NewBool(false),
-		lock:           sync.Mutex{},
+		lock:           sync.RWMutex{},
 	}
+}
+
+// updateIPResolved updates resolved IP address from net.Conn
+func (d *dialer) updateIPResolved(conn net.Conn) {
+	connIP, _, connSpErr := net.SplitHostPort(
+		conn.RemoteAddr().String())
+
+	if connSpErr != nil {
+		return
+	}
+
+	resolvedIP := net.ParseIP(connIP)
+
+	if resolvedIP == nil {
+		return
+	}
+
+	d.lock.Lock()
+	defer d.lock.Unlock()
+
+	d.resolvedHostIP = resolvedIP
+}
+
+// getResolvedIP returns resolved IP from cache
+func (d *dialer) getResolvedIP() string {
+	d.lock.RLock()
+	defer d.lock.RUnlock()
+
+	return d.resolvedHostIP.String()
 }
 
 // Dial dial to the remote target
@@ -59,14 +97,22 @@ func (d *dialer) Dial(
 	var targetAddr string
 	var updateResolvedIP bool
 
-	if d.resolvedHostIP == nil || d.tryRenew.Get() {
+	// We will set tryRenew to false no matter if we actually got a
+	// new IP address.
+	// This is because some time network itself can cause unstable
+	// connection which triggers tryRenew, but that not meaning the
+	// IP address of the target host has changed.
+	// If we clear the resolvedHostIP for every each failed connection
+	// that will be a waste of work.
+
+	resolvedHostIP := d.getResolvedIP()
+
+	if d.tryRenew.GetSet(false) || len(resolvedHostIP) <= 0 {
 		targetAddr = d.defaultHost
 		updateResolvedIP = true
 	} else {
-		targetAddr = d.resolvedHostIP.String()
+		targetAddr = resolvedHostIP
 	}
-
-	d.tryRenew.Set(false)
 
 	hostAddr := net.JoinHostPort(
 		targetAddr, strconv.FormatUint(uint64(d.port), 10))
@@ -80,15 +126,7 @@ func (d *dialer) Dial(
 	}
 
 	if updateResolvedIP {
-		d.lock.Lock()
-		defer d.lock.Unlock()
-
-		connIP, _, connSpErr := net.SplitHostPort(
-			conn.RemoteAddr().String())
-
-		if connSpErr == nil {
-			d.resolvedHostIP = net.ParseIP(connIP)
-		}
+		d.updateIPResolved(conn)
 	}
 
 	return conn, dialErr

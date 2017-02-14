@@ -123,6 +123,7 @@ func (s *server) handle(
 	return err
 }
 
+// serve serves incoming connections
 func (s *server) serve(opt ServeOptionBuilder) error {
 	var accept ServerClientConn
 	var acceptErr error

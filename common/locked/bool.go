@@ -26,6 +26,7 @@ import "sync"
 type Boolean interface {
 	Set(newValue bool)
 	Get() bool
+	GetSet(newValue bool) bool
 	Load(func(current bool))
 }
 
@@ -56,6 +57,18 @@ func (b *boolean) Get() bool {
 	defer b.lock.RUnlock()
 
 	return b.value
+}
+
+// Get current value of the data, and update it with a new one
+func (b *boolean) GetSet(newValue bool) bool {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
+	current := b.value
+
+	b.value = newValue
+
+	return current
 }
 
 // Load loads current value to a callback, and keep blocking while
