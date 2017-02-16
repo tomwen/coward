@@ -245,6 +245,8 @@ func (u *dispatcher) handle(
 				return ErrDispatcherClosed
 			}
 
+			time.Sleep(1 * time.Second)
+
 			continue
 		}
 

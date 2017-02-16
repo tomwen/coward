@@ -24,6 +24,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/nickrio/coward/common/codec"
 	"github.com/nickrio/coward/common/locked"
@@ -150,6 +151,8 @@ func (t *tcp) Serve(clientCloseWait *sync.WaitGroup) error {
 
 			t.logger.Warningf("Can't accept connection due to error: %s",
 				listenerErr)
+
+			time.Sleep(1 * time.Second)
 
 			continue
 		}

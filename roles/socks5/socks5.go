@@ -24,6 +24,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	ccommon "github.com/nickrio/coward/common"
 	"github.com/nickrio/coward/common/codec"
@@ -161,6 +162,8 @@ func (s *socks5) serve() {
 
 			s.config.Logger.Errorf(
 				"Can't accpet connection due to error: %s", acceptErr)
+
+			time.Sleep(1 * time.Second)
 
 			continue
 		}

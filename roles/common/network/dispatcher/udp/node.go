@@ -129,7 +129,6 @@ func (n *nodes) clearNode(nodeRef *node) {
 
 func (n *nodes) scanExpiredNodes() {
 	tail := n.tail
-	previous := n.tail
 	expireTime := time.Now().Add(-(n.config.Expire))
 
 	for {
@@ -141,7 +140,7 @@ func (n *nodes) scanExpiredNodes() {
 			break
 		}
 
-		previous = tail.previous
+		previous := tail.previous
 
 		n.clearNode(tail)
 
@@ -213,14 +212,13 @@ func (n *nodes) Clear(name string) error {
 
 func (n *nodes) ClearAll() {
 	tail := n.tail
-	pervious := n.tail
 
 	for {
 		if tail == nil {
 			break
 		}
 
-		pervious = tail.previous
+		pervious := tail.previous
 
 		n.clearNode(tail)
 

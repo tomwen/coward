@@ -65,8 +65,9 @@ const roleListFormat = "    %%%ds    %%s\r\n"
 
 // New build a new COWARD application according to Config
 func New(cfg Config) Application {
-	exeName := ""
-	intro := ""
+	var exeName string
+	var intro string
+
 	about := aboutBanner + "\r\n"
 
 	if cfg.Banner != "" {
@@ -554,6 +555,8 @@ func (c *application) execute(
 		if fileErr != nil {
 			return fileErr
 		}
+
+		defer file.Close()
 
 		bFile := bufio.NewWriter(file)
 

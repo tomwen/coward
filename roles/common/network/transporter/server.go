@@ -23,6 +23,7 @@ package transporter
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/nickrio/coward/common/locked"
 )
@@ -135,6 +136,9 @@ func (s *server) serve(opt ServeOptionBuilder) error {
 			if s.shutdown.Get() {
 				break
 			}
+
+			// Don't retry that often, wait 1 second to continue
+			time.Sleep(1 * time.Second)
 
 			continue
 		}
